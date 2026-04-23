@@ -167,7 +167,7 @@ function TransferModal({prefillItemId,prefillFromId,data,refresh,onClose,user}){
   const fromS=data.stock.find(s=>s.iid===itemId&&s.lid===fromId);
   const avail=fromS?.qty??0;
   const toOpts=data.locations.filter(l=>l.id!==fromId).map(l=>({value:l.id,label:l.name}));
-  const go=()=>{
+  const go=async()=>{
     setErr('');
     const n=parseInt(qty);
     if(!itemId||!fromId||!toId){setErr('Fill all fields');return;}
@@ -217,7 +217,7 @@ function AddEditItemModal({editItem,data,refresh,onClose}){
   const [supplier,setSupplier]=useState(editItem?.supplier||prefill?.supplier||'');
   const [lowAt,setLowAt]=useState(String(editItem?.lowAt??prefill?.lowAt??2));
   const [err,setErr]=useState('');
-  const save=()=>{
+  const save=async()=>{
     if(!name.trim()){setErr('Item name is required');return;}
     if(!uom.trim()){setErr('Unit of measure is required');return;}
     const p={name:name.trim(),uom:uom.trim(),desc:desc.trim(),supplier:supplier.trim(),lowAt:parseInt(lowAt)||2};
@@ -245,7 +245,7 @@ function AddEditItemModal({editItem,data,refresh,onClose}){
 function AddLocationModal({data,refresh,onClose}){
   const [name,setName]=useState('');
   const [err,setErr]=useState('');
-  const save=()=>{
+  const save=async()=>{
     if(!name.trim()){setErr('Location name is required');return;}
     try{await api.createLocation(name.trim());await refresh();onClose();}catch(e){setErr(e.message);}
   };
@@ -1113,3 +1113,6 @@ export default function App(){
       {modal?.type==='consume'&&<ConsumeModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='transfer'&&<TransferModal prefillItemId={modal.prefillItemId} prefillFromId={modal.prefillFromId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='add-item'&&<AddEditItemModal editItem={null} prefill={modal.prefill} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
+    </div>
+  );
+}
