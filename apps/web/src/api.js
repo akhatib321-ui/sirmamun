@@ -16,24 +16,32 @@ async function req(method, path, body) {
 }
 
 export const api = {
-  // ── Bootstrap ────────────────────────────────────────────────
-  fetchAll: ()                              => req('GET',    '/bootstrap'),
+  // ── Bootstrap ─────────────────────────────────────────────
+  fetchAll: ()                                        => req('GET',    '/bootstrap'),
 
-  // ── Locations ───────────────────────────────────────────────
-  createLocation: (name)                   => req('POST',   '/locations',       { name }),
-  deleteLocation: (id)                     => req('DELETE', `/locations/${id}`),
+  // ── Auth ──────────────────────────────────────────────────
+  login: (pin)                                        => req('POST',   '/auth/login',       { pin }),
+  listUsers: ()                                       => req('GET',    '/auth/users'),
+  createUser: (name, pin, role)                       => req('POST',   '/auth/users',       { name, pin, role }),
+  updateUser: (id, dto)                               => req('PUT',    `/auth/users/${id}`, dto),
+  deleteUser: (id)                                    => req('DELETE', `/auth/users/${id}`),
 
-  // ── Items ────────────────────────────────────────────────────
-  createItem: (dto)                        => req('POST',   '/items',           dto),
-  updateItem: (id, dto)                    => req('PUT',    `/items/${id}`,     dto),
-  deleteItem: (id)                         => req('DELETE', `/items/${id}`),
+  // ── Locations ─────────────────────────────────────────────
+  createLocation: (name)                              => req('POST',   '/locations',        { name }),
+  deleteLocation: (id)                                => req('DELETE', `/locations/${id}`),
 
-  // ── Stock ────────────────────────────────────────────────────
-  addStock: (iid, lid, qty)               => req('POST',   '/stock',           { iid, lid, qty }),
-  adjust: (stockId, qty, note)            => req('PUT',    `/stock/${stockId}`, { qty, note }),
-  batchAdjust: (changes)                  => req('POST',   '/stock/batch',     { changes }),
-  transfer: (iid, fromLid, toLid, qty)   => req('POST',   '/transfer',        { iid, fromLid, toLid, qty }),
+  // ── Items ─────────────────────────────────────────────────
+  createItem: (dto)                                   => req('POST',   '/items',            dto),
+  updateItem: (id, dto)                               => req('PUT',    `/items/${id}`,      dto),
+  deleteItem: (id)                                    => req('DELETE', `/items/${id}`),
 
-  // ── Import ───────────────────────────────────────────────────
-  bulkImport: (rows)                      => req('POST',   '/import',          { rows }),
+  // ── Stock ─────────────────────────────────────────────────
+  addStock: (iid, lid, qty)                          => req('POST',   '/stock',            { iid, lid, qty }),
+  adjust: (stockId, qty, actor, note)                => req('PUT',    `/stock/${stockId}`, { qty, note, ...actor }),
+  batchAdjust: (changes, actor)                      => req('POST',   '/stock/batch',      { changes, ...actor }),
+  consume: (stockId, amount, actor)                  => req('POST',   '/stock/consume',    { stockId, amount, ...actor }),
+  transfer: (iid, fromLid, toLid, qty, actor)        => req('POST',   '/transfer',         { iid, fromLid, toLid, qty, ...actor }),
+
+  // ── Import ────────────────────────────────────────────────
+  bulkImport: (rows)                                 => req('POST',   '/import',           { rows }),
 };

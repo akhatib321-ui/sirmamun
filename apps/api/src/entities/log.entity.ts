@@ -8,13 +8,20 @@ export class Log {
   @Column({ type: 'bigint' })
   ts: number;
 
-  @Column() // 'adj' | 'xfr'
+  @Column() // 'adj' | 'xfr' | 'consume'
   type: string;
 
   @Column()
   iid: string;
 
-  // adj fields
+  // Who did this
+  @Column({ nullable: true })
+  userId: string;
+
+  @Column({ nullable: true })
+  userName: string;
+
+  // adj / consume fields
   @Column({ nullable: true })
   lid: string;
 

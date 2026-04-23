@@ -2,7 +2,7 @@
   "name": "@sirmamun/api",
   "version": "1.0.0",
   "scripts": {
-    "build": "npx nest build",
+    "build": "nest build",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main"
   },

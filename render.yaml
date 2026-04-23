@@ -32,8 +32,6 @@ services:
           property: database
       - key: DB_SSL
         value: "true"
-      - key: NPM_CONFIG_PRODUCTION
-        value: false
 
 databases:
   - name: sirmamun-db

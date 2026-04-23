@@ -5,31 +5,31 @@ import { StockService } from './stock.service';
 export class StockController {
   constructor(private svc: StockService) {}
 
-  // Add a stock record (item at a location with initial qty)
   @Post('stock')
   addStock(@Body() body: { iid: string; lid: string; qty: number }) {
     return this.svc.addStock(body.iid, body.lid, body.qty);
   }
 
-  // Adjust a single stock row to a new absolute qty
   @Put('stock/:id')
-  adjust(@Param('id') id: string, @Body() body: { qty: number; note?: string }) {
-    return this.svc.adjust(id, body.qty, body.note);
+  adjust(@Param('id') id: string, @Body() body: { qty: number; note?: string; userId?: string; userName?: string }) {
+    return this.svc.adjust(id, body.qty, { userId: body.userId, userName: body.userName }, body.note);
   }
 
-  // Batch adjust — used by stock count mode
   @Post('stock/batch')
-  batchAdjust(@Body() body: { changes: { stockId: string; qty: number }[] }) {
-    return this.svc.batchAdjust(body.changes);
+  batchAdjust(@Body() body: { changes: { stockId: string; qty: number }[]; userId?: string; userName?: string }) {
+    return this.svc.batchAdjust(body.changes, { userId: body.userId, userName: body.userName });
   }
 
-  // Transfer between locations
+  @Post('stock/consume')
+  consume(@Body() body: { stockId: string; amount: number; userId?: string; userName?: string }) {
+    return this.svc.consume(body.stockId, body.amount, { userId: body.userId, userName: body.userName });
+  }
+
   @Post('transfer')
-  transfer(@Body() body: { iid: string; fromLid: string; toLid: string; qty: number }) {
-    return this.svc.transfer(body.iid, body.fromLid, body.toLid, body.qty);
+  transfer(@Body() body: { iid: string; fromLid: string; toLid: string; qty: number; userId?: string; userName?: string }) {
+    return this.svc.transfer(body.iid, body.fromLid, body.toLid, body.qty, { userId: body.userId, userName: body.userName });
   }
 
-  // CSV bulk import
   @Post('import')
   bulkImport(@Body() body: { rows: any[] }) {
     return this.svc.bulkImport(body.rows);
