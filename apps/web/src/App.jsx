@@ -13,7 +13,6 @@ const C = {
 };
 
 // ─── API ──────────────────────────────────────────────────
-import { api } from './api.js';
 function relTime(ts){
   const s=Math.floor((Date.now()-ts)/1000);
   if(s<60)return'Just now';
@@ -168,7 +167,7 @@ function TransferModal({prefillItemId,prefillFromId,data,refresh,onClose}){
   const fromS=data.stock.find(s=>s.iid===itemId&&s.lid===fromId);
   const avail=fromS?.qty??0;
   const toOpts=data.locations.filter(l=>l.id!==fromId).map(l=>({value:l.id,label:l.name}));
-  const go=()=>{
+  const go=async()=>{
     setErr('');
     const n=parseInt(qty);
     if(!itemId||!fromId||!toId){setErr('Fill all fields');return;}
@@ -218,7 +217,7 @@ function AddEditItemModal({editItem,data,refresh,onClose}){
   const [supplier,setSupplier]=useState(editItem?.supplier||'');
   const [lowAt,setLowAt]=useState(String(editItem?.lowAt??2));
   const [err,setErr]=useState('');
-  const save=()=>{
+  const save=async()=>{
     if(!name.trim()){setErr('Item name is required');return;}
     if(!uom.trim()){setErr('Unit of measure is required');return;}
     const p={name:name.trim(),uom:uom.trim(),desc:desc.trim(),supplier:supplier.trim(),lowAt:parseInt(lowAt)||2};
@@ -246,7 +245,7 @@ function AddEditItemModal({editItem,data,refresh,onClose}){
 function AddLocationModal({data,refresh,onClose}){
   const [name,setName]=useState('');
   const [err,setErr]=useState('');
-  const save=()=>{
+  const save=async()=>{
     if(!name.trim()){setErr('Location name is required');return;}
     try{await api.createLocation(name.trim());await refresh();onClose();}catch(e){setErr(e.message);}
   };
@@ -393,7 +392,7 @@ function InventoryView({data,refresh,openModal}){
     return !isNaN(n)&&n>=0&&n!==s.qty;
   }):[];
 
-  const saveCount=()=>{
+  const saveCount=async ()=>{
     if(changedEntries.length===0){cancelCount();return;}
     let d={...data,stock:[...data.stock]};
     try{
@@ -933,3 +932,10 @@ export default function App(){
       {modal?.type==='adjust'&&<AdjustModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal}/>}
       {modal?.type==='transfer'&&<TransferModal prefillItemId={modal.prefillItemId} prefillFromId={modal.prefillFromId} data={data} refresh={refresh} onClose={closeModal}/>}
       {modal?.type==='add-item'&&<AddEditItemModal editItem={null} data={data} refresh={refresh} onClose={closeModal}/>}
+      {modal?.type==='edit-item'&&<AddEditItemModal editItem={modal.item} data={data} refresh={refresh} onClose={closeModal}/>} 
+      {modal?.type==='add-location'&&<AddLocationModal data={data} refresh={refresh} onClose={closeModal}/>} 
+      {modal?.type==='add-stock'&&<AddStockModal locationId={modal.locationId} data={data} refresh={refresh} onClose={closeModal}/>} 
+      {modal?.type==='confirm'&&<ConfirmModal title={modal.title} message={modal.message} onConfirm={modal.onConfirm} onClose={closeModal}/>} 
+    </div>
+  );
+}
