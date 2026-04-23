@@ -210,7 +210,7 @@ function TransferModal({prefillItemId,prefillFromId,data,refresh,onClose,user}){
 }
 
 const UOM_OPTS=['Box','Case','Bag','Bottle','Can','Kg','L','Each','Dozen','Pack','Jar','Sack'];
-function AddEditItemModal({editItem,data,refresh,onClose}){
+function AddEditItemModal({editItem,prefill,user,data,refresh,onClose}){
   const [name,setName]=useState(editItem?.name||prefill?.name||'');
   const [uom,setUom]=useState(editItem?.uom||prefill?.uom||'');
   const [desc,setDesc]=useState(editItem?.desc||prefill?.desc||'');
@@ -1113,6 +1113,12 @@ export default function App(){
       {modal?.type==='consume'&&<ConsumeModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='transfer'&&<TransferModal prefillItemId={modal.prefillItemId} prefillFromId={modal.prefillFromId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='add-item'&&<AddEditItemModal editItem={null} prefill={modal.prefill} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
+      {modal?.type==='edit-item'&&<AddEditItemModal editItem={modal.item} data={data} refresh={refresh} onClose={closeModal} user={user}/>} 
+      {modal?.type==='add-location'&&<AddLocationModal data={data} refresh={refresh} onClose={closeModal}/>} 
+      {modal?.type==='add-stock'&&<AddStockModal locationId={modal.locationId} data={data} refresh={refresh} onClose={closeModal}/>} 
+      {modal?.type==='import'&&<Sheet title="Upload from CSV" onClose={closeModal}><ImportView data={data} refresh={refresh}/></Sheet>} 
+      {modal?.type==='confirm'&&<ConfirmModal title={modal.title} message={modal.message} onConfirm={modal.onConfirm} onClose={closeModal}/>} 
+      {modal?.type==='log'&&<LogSheet data={data} onClose={closeModal}/>} 
     </div>
   );
 }
