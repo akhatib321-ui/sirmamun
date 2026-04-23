@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: sirmamun-api
+    runtime: node
+    rootDir: apps/api
+    buildCommand: npm install && npm run build
+    startCommand: npm run start:prod
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: DB_HOST
+        fromDatabase:
+          name: sirmamun-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: sirmamun-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: sirmamun-db
+          property: user
+      - key: DB_PASS
+        fromDatabase:
+          name: sirmamun-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: sirmamun-db
+          property: database
+      - key: DB_SSL
+        value: "true"
+
+databases:
+  - name: sirmamun-db
+    databaseName: sirmamun
+    plan: free

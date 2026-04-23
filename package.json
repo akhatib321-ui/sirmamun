@@ -1,0 +1,9 @@
+{
+  "name": "sirmamun",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "api": "npm run start:dev --workspace=apps/api",
+    "web": "npm run dev --workspace=apps/web"
+  }
+}
