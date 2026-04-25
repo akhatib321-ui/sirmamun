@@ -1029,6 +1029,7 @@ function SettingsView({user}){
 export default function App(){
   const [data,setData]=useState(null);
   const [tab,setTab]=useState('dashboard');
+  const [showMore,setShowMore]=useState(false);
   const [modal,setModal]=useState(null);
   const [err,setErr]=useState(null);
   const [user,setUser]=useState(()=>{try{const u=sessionStorage.getItem('sm_user');return u?JSON.parse(u):null;}catch{return null;}});
@@ -1066,7 +1067,9 @@ export default function App(){
   );
   const low=data.stock.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
   const settingsIcon=<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
-  const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat},{key:'reorder',label:'Reorder',icon:Ic.reorder},{key:'locations',label:'Locations',icon:Ic.loc},...(user?.role==='admin'?[{key:'settings',label:'Settings',icon:settingsIcon}]:[])];
+  const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
+  const MORE_TABS=[{key:'reorder',label:'Reorder',icon:Ic.reorder},{key:'locations',label:'Locations',icon:Ic.loc},...(user?.role==='admin'?[{key:'settings',label:'Settings',icon:settingsIcon}]:[])];
+  const moreActive=['reorder','locations','settings'].includes(tab);
   const tabTitles={dashboard:'Dashboard',inventory:'Inventory',catalog:'Item Catalog',reorder:'Reorder List',locations:'Locations',settings:'Settings'};
   return(
     <div style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,maxWidth:480,margin:'0 auto',paddingBottom:74,position:'relative'}}>
@@ -1097,17 +1100,37 @@ export default function App(){
       {tab==='locations'&&<LocationsView data={data} refresh={refresh} openModal={openModal}/>}
       {tab==='settings'&&<SettingsView user={user}/>}
       </div>
+      {showMore&&<div onClick={()=>setShowMore(false)} style={{position:'fixed',inset:0,zIndex:99}}/>}
+      {showMore&&(
+        <div style={{position:'fixed',bottom:64,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:C.black,borderTop:'1px solid #2A2520',display:'flex',zIndex:100}}>
+          {MORE_TABS.map(({key,label,icon})=>(
+            <button key={key} onClick={()=>{setTab(key);setShowMore(false);}} style={{flex:1,padding:'12px 0',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
+              <div style={{lineHeight:0,position:'relative'}}>
+                {icon}
+                {key==='reorder'&&low.length>0&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
+              </div>
+              <span style={{fontSize:9.5,fontWeight:tab===key?600:400,letterSpacing:.3}}>{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:C.black,display:'flex',borderTop:'1px solid #1E1A15',paddingBottom:'env(safe-area-inset-bottom,0px)',zIndex:100}}>
         {TABS.map(({key,label,icon})=>(
-          <button key={key} onClick={()=>setTab(key)} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
+          <button key={key} onClick={()=>{setTab(key);setShowMore(false);}} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
             <div style={{lineHeight:0,position:'relative'}}>
               {icon}
               {key==='dashboard'&&low.length>0&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
-              {key==='reorder'&&low.length>0&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
             </div>
             <span style={{fontSize:9.5,fontWeight:tab===key?600:400,letterSpacing:.3}}>{label}</span>
           </button>
         ))}
+        <button onClick={()=>setShowMore(v=>!v)} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:(moreActive||showMore)?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
+          <div style={{lineHeight:0,position:'relative'}}>
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+            {low.length>0&&!moreActive&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
+          </div>
+          <span style={{fontSize:9.5,fontWeight:(moreActive||showMore)?600:400,letterSpacing:.3}}>More</span>
+        </button>
       </nav>
       {modal?.type==='adjust'&&<AdjustModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='consume'&&<ConsumeModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
