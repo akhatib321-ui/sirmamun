@@ -111,7 +111,7 @@ function Sheet({title,onClose,children}){
             <button onClick={onClose} style={{background:C.beige,border:'none',borderRadius:9,padding:'7px',cursor:'pointer',display:'flex',color:C.warmM,lineHeight:0}}>{Ic.close}</button>
           </div>
         </div>
-        <div style={{padding:'18px 20px 8px'}}>{children}</div>
+        <div style={{padding:'18px 20px 80px'}}>{children}</div>
       </div>
     </div>
   );
