@@ -20,15 +20,15 @@ export class AuthService {
     return users.map(({ pin: _, ...u }) => u);
   }
 
-  async createUser(name: string, pin: string, role: string = 'staff') {
+  async createUser(name: string, pin: string, role: string = 'staff', locationIds: string[] = []) {
     const existing = await this.repo.findOneBy({ pin });
     if (existing) throw new UnauthorizedException('PIN already in use');
-    const user = await this.repo.save(this.repo.create({ name, pin, role }));
+    const user = await this.repo.save(this.repo.create({ name, pin, role, locationIds }));
     const { pin: _, ...safe } = user;
     return safe;
   }
 
-  async updateUser(id: string, dto: { name?: string; pin?: string; role?: string }) {
+  async updateUser(id: string, dto: { name?: string; pin?: string; role?: string; locationIds?: string[] }) {
     const user = await this.repo.findOneBy({ id });
     if (!user) throw new NotFoundException();
     // Check PIN uniqueness if changing

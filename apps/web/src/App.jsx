@@ -294,7 +294,7 @@ function ConfirmModal({title,message,onConfirm,onClose}){
 }
 
 // ─── VIEWS ────────────────────────────────────────────────
-function DashboardView({data,openModal}){
+function DashboardView({data,openModal,user}){
   const low=data.stock.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
   const recentLog=(data.log||[]).slice(0,5);
   return(
@@ -335,7 +335,7 @@ function DashboardView({data,openModal}){
         </div>
       )}
       <div style={{marginTop:low.length?16:0}}>
-        <SecHead title="Locations Overview" action={<Btn variant="secondary" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add</Btn>}/>
+        <SecHead title="Locations Overview" action={user?.role==='admin'&&<Btn variant="secondary" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add</Btn>}/>
         {data.locations.map(loc=>{
           const ls=data.stock.filter(s=>s.lid===loc.id);
           const ll=ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
@@ -374,7 +374,6 @@ function InventoryView({data,refresh,openModal,user}){
   const locStock=data.stock.filter(s=>s.lid===locId);
   const allItems=locStock.map(s=>({s,it:data.items.find(i=>i.id===s.iid)})).filter(x=>x.it);
   const visible=allItems.filter(({it})=>it.name.toLowerCase().includes(search.toLowerCase()));
-  const quickAdj=async(s,delta)=>{const nq=s.qty+delta;if(nq<0)return;try{await api.adjust(s.id,nq,{userId:user?.id,userName:user?.name});await refresh();}catch{}};
   const hasStock=locStock.some(s=>s.qty>0);
 
   const enterCount=()=>{
@@ -448,7 +447,7 @@ function InventoryView({data,refresh,openModal,user}){
 
       {/* Hint */}
       {!countMode&&visible.length>0&&!selectedId&&(
-        <div style={{textAlign:'center',fontSize:12,color:C.warmL,fontFamily:ff,padding:'2px 0 6px',letterSpacing:.2}}>Tap a row to adjust quantity</div>
+        <div style={{textAlign:'center',fontSize:12,color:C.warmL,fontFamily:ff,padding:'2px 0 6px',letterSpacing:.2}}>Tap a row to consume or transfer</div>
       )}
       {countMode&&(
         <div style={{textAlign:'center',fontSize:12,color:C.warmL,fontFamily:ff,padding:'6px 0 4px',letterSpacing:.2}}>Enter actual quantities on hand</div>
@@ -508,12 +507,10 @@ function InventoryView({data,refresh,openModal,user}){
               <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}} onClick={e=>e.stopPropagation()}>
                 {isSel?(
                   <>
-                    <button onClick={()=>quickAdj(s,-1)} disabled={s.qty<=0} style={{width:38,height:38,borderRadius:'50%',border:'none',cursor:s.qty<=0?'not-allowed':'pointer',background:s.qty<=0?'#333':C.gold,color:s.qty<=0?'#555':C.black,fontSize:24,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}}>−</button>
                     <div onClick={()=>openModal({type:'adjust',stockId:s.id})} style={{cursor:'pointer',textAlign:'center',minWidth:46}}>
                       <div style={{fontSize:22,fontWeight:700,fontFamily:fs,color:isLow?C.red:C.gold,lineHeight:1}}>{s.qty}</div>
                       <div style={{fontSize:9.5,color:C.warmL,fontFamily:ff,lineHeight:1.2}}>{it.uom}</div>
                     </div>
-                    <button onClick={()=>quickAdj(s,1)} style={{width:38,height:38,borderRadius:'50%',border:'none',cursor:'pointer',background:C.gold,color:C.black,fontSize:24,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
                     <button onClick={e=>{e.stopPropagation();openModal({type:'transfer',prefillItemId:it.id,prefillFromId:locId});}} title="Transfer this item" style={{height:34,padding:'0 10px',borderRadius:10,border:`1.5px solid ${C.warmM}`,background:'transparent',color:C.warmL,display:'flex',alignItems:'center',gap:4,cursor:'pointer',fontFamily:ff,fontSize:12,fontWeight:600,lineHeight:1,flexShrink:0}}>
                       <span style={{lineHeight:0}}>{Ic.trans}</span>
                       <span>→</span>
@@ -547,12 +544,11 @@ function InventoryView({data,refresh,openModal,user}){
           </>
         ):(
           <button
-            onClick={()=>openModal({type:'transfer',prefillFromId:locId})}
+            onClick={()=>openModal({type:'consume',locId})}
             disabled={!hasStock}
             style={{pointerEvents:'auto',display:'flex',alignItems:'center',gap:9,padding:'13px 26px',borderRadius:50,background:hasStock?C.black:'#999',color:hasStock?C.gold:'#ccc',border:`2px solid ${hasStock?C.gold:'#bbb'}`,boxShadow:hasStock?'0 4px 20px rgba(0,0,0,.35)':'none',fontFamily:ff,fontSize:15,fontWeight:700,cursor:hasStock?'pointer':'not-allowed',letterSpacing:.2,transition:'all .2s'}}
           >
-            <span style={{lineHeight:0}}>{Ic.trans}</span>
-            Transfer from here
+            ☕ Record Consumption
           </button>
         )}
       </div>
@@ -609,13 +605,13 @@ function CatalogView({data,refresh,openModal,user}){
   );
 }
 
-function LocationsView({data,refresh,openModal}){
+function LocationsView({data,refresh,openModal,user}){
   const deleteLoc=async id=>{try{await api.deleteLocation(id);await refresh();}catch(e){alert(e.message);}};
   return(
     <div style={{padding:'14px 16px'}}>
-      <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+      {user?.role==='admin'&&<div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
         <Btn variant="dark" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add Location</Btn>
-      </div>
+      </div>}
       {data.locations.length===0&&<div style={{textAlign:'center',padding:'50px 0',color:C.warmL,fontFamily:ff}}><div style={{fontSize:36,marginBottom:10}}>🏪</div><div style={{fontWeight:600}}>No locations yet</div><div style={{fontSize:13,marginTop:4}}>Add your first café location</div></div>}
       {data.locations.map(loc=>{
         const ls=data.stock.filter(s=>s.lid===loc.id);
@@ -810,14 +806,14 @@ function LoginScreen({onLogin}){
 }
 
 // ─── CONSUME MODAL ────────────────────────────────────────
-function ConsumeModal({stockId,data,refresh,onClose,user}){
-  const s=data.stock.find(x=>x.id===stockId);
+function ConsumeModal({stockId,locId,data,refresh,onClose,user}){
+  const [selId,setSelId]=useState(stockId||'');
+  const s=data.stock.find(x=>x.id===selId);
   const it=data.items.find(i=>i.id===s?.iid);
   const lc=data.locations.find(l=>l.id===s?.lid);
   const [amt,setAmt]=useState('1');
   const [err,setErr]=useState('');
   const [done,setDone]=useState(false);
-  if(!s||!it)return null;
   const go=async()=>{
     const n=parseInt(amt);
     if(!n||n<=0){setErr('Enter a positive amount');return;}
@@ -837,6 +833,16 @@ function ConsumeModal({stockId,data,refresh,onClose,user}){
       </Sheet>
     );
   }
+  if(!selId){
+    const opts=data.stock.filter(x=>x.lid===locId&&x.qty>0).map(x=>{const i=data.items.find(i=>i.id===x.iid);return i?{value:x.id,label:i.name}:null;}).filter(Boolean);
+    return(
+      <Sheet title="Record Consumption" onClose={onClose}>
+        <Sel label="Item" value={selId} onChange={setSelId} required options={opts}/>
+        {opts.length===0&&<div style={{color:C.warmL,fontSize:13,textAlign:'center',padding:'20px 0',fontFamily:ff}}>No stock available at this location</div>}
+      </Sheet>
+    );
+  }
+  if(!s||!it)return null;
   return(
     <Sheet title="Record Consumption" onClose={onClose}>
       <div style={{textAlign:'center',marginBottom:20}}>
@@ -951,28 +957,32 @@ function ReorderView({data,openModal,user}){
 
 
 // ─── SETTINGS VIEW ────────────────────────────────────────
-function SettingsView({user}){
+function SettingsView({user,data}){
   const [users,setUsers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(null); // {type:'add'} or {type:'edit',u}
   const [name,setName]=useState('');
   const [pin,setPin]=useState('');
   const [role,setRole]=useState('staff');
+  const [locationIds,setLocationIds]=useState([]);
   const [err,setErr]=useState('');
 
   const load=async()=>{try{setUsers(await api.listUsers());}finally{setLoading(false);}};
   useEffect(()=>{load();},[]);
 
-  const openAdd=()=>{setName('');setPin('');setRole('staff');setErr('');setModal({type:'add'});};
-  const openEdit=u=>{setName(u.name);setPin('');setRole(u.role);setErr('');setModal({type:'edit',u});};
+  const openAdd=()=>{setName('');setPin('');setRole('staff');setLocationIds([]);setErr('');setModal({type:'add'});};
+  const openEdit=u=>{setName(u.name);setPin('');setRole(u.role);setLocationIds(u.locationIds||[]);setErr('');setModal({type:'edit',u});};
+
+  const toggleLoc=id=>setLocationIds(ids=>ids.includes(id)?ids.filter(x=>x!==id):[...ids,id]);
 
   const save=async()=>{
     if(!name.trim()){setErr('Name required');return;}
     if(modal.type==='add'&&pin.length!==4){setErr('PIN must be 4 digits');return;}
     if(modal.type==='edit'&&pin&&pin.length!==4){setErr('New PIN must be 4 digits');return;}
+    const lids=role==='staff'?locationIds:[];
     try{
-      if(modal.type==='add')await api.createUser(name.trim(),pin,role);
-      else await api.updateUser(modal.u.id,{name:name.trim(),role,...(pin?{pin}:{})});
+      if(modal.type==='add')await api.createUser(name.trim(),pin,role,lids);
+      else await api.updateUser(modal.u.id,{name:name.trim(),role,locationIds:lids,...(pin?{pin}:{})});
       await load();setModal(null);
     }catch(e){setErr(e.message);}
   };
@@ -994,9 +1004,13 @@ function SettingsView({user}){
       </div>
       {loading?<div style={{color:C.warmL,fontFamily:ff,textAlign:'center',padding:30}}>Loading…</div>:users.map(u=>(
         <div key={u.id} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',alignItems:'center',gap:10,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
-          <div style={{flex:1}}>
+          <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:600,fontSize:14,fontFamily:ff,color:C.warm}}>{u.name}</div>
-            <div style={{fontSize:12,color:C.warmL,marginTop:2,fontFamily:ff,textTransform:'capitalize'}}>{u.role}</div>
+            <div style={{fontSize:12,color:C.warmL,marginTop:2,fontFamily:ff,textTransform:'capitalize'}}>
+              {u.role}
+              {u.role==='staff'&&u.locationIds?.length>0&&<span style={{color:C.gold,fontWeight:500}}> · {u.locationIds.map(id=>data.locations.find(l=>l.id===id)?.name).filter(Boolean).join(', ')}</span>}
+              {u.role==='staff'&&!u.locationIds?.length&&<span style={{color:C.warmL}}> · all locations</span>}
+            </div>
           </div>
           <button onClick={()=>openEdit(u)} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.beigeD}`,background:C.beige,color:C.warmM,cursor:'pointer',fontFamily:ff,fontSize:12.5,fontWeight:500}}>{Ic.edit} Edit</button>
           {u.id!==user.id&&<button onClick={()=>del(u)} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.redL}`,background:C.redL,color:C.red,cursor:'pointer',fontFamily:ff,fontSize:12.5,fontWeight:500}}>{Ic.trash}</button>}
@@ -1017,6 +1031,23 @@ function SettingsView({user}){
               ))}
             </div>
           </div>
+          {role==='staff'&&data.locations.length>0&&(
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:11.5,fontWeight:600,color:C.warmM,marginBottom:4,letterSpacing:.4,textTransform:'uppercase',fontFamily:ff}}>Assigned Locations</div>
+              <div style={{fontSize:11,color:C.warmL,marginBottom:8,fontFamily:ff}}>Leave all unchecked to allow all locations</div>
+              {data.locations.map(l=>{
+                const on=locationIds.includes(l.id);
+                return(
+                  <label key={l.id} onClick={()=>toggleLoc(l.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:10,background:on?C.black:C.beige,marginBottom:6,cursor:'pointer',border:`1.5px solid ${on?C.gold:C.beigeD}`,transition:'all .15s'}}>
+                    <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${on?C.gold:C.warmM}`,background:on?C.gold:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
+                      {on&&<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke={C.black} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    <span style={{fontFamily:ff,fontSize:14,color:on?C.gold:C.warm,fontWeight:on?600:400}}>{l.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
           <ErrBox msg={err}/>
           <Btn onClick={save} variant="dark" size="lg">Save</Btn>
         </Sheet>
@@ -1065,7 +1096,9 @@ export default function App(){
       }
     </div>
   );
-  const low=data.stock.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
+  const hasLocRestriction=user?.role!=='admin'&&user?.locationIds?.length>0;
+  const viewData=hasLocRestriction?{...data,locations:data.locations.filter(l=>user.locationIds.includes(l.id)),stock:data.stock.filter(s=>user.locationIds.includes(s.lid))}:data;
+  const low=viewData.stock.filter(s=>{const it=viewData.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
   const settingsIcon=<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
   const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
   const MORE_TABS=[{key:'reorder',label:'Reorder',icon:Ic.reorder},{key:'locations',label:'Locations',icon:Ic.loc},...(user?.role==='admin'?[{key:'settings',label:'Settings',icon:settingsIcon}]:[])];
@@ -1093,12 +1126,12 @@ export default function App(){
         </div>
       </header>
       <div style={{position:'relative',zIndex:1}}>
-      {tab==='dashboard'&&<DashboardView data={data} openModal={openModal}/>}
-      {tab==='inventory'&&<InventoryView data={data} refresh={refresh} openModal={openModal} user={user}/>}
-      {tab==='catalog'&&<CatalogView data={data} refresh={refresh} openModal={openModal} user={user}/>}
-      {tab==='reorder'&&<ReorderView data={data} openModal={openModal} user={user}/>}
-      {tab==='locations'&&<LocationsView data={data} refresh={refresh} openModal={openModal}/>}
-      {tab==='settings'&&<SettingsView user={user}/>}
+      {tab==='dashboard'&&<DashboardView data={viewData} openModal={openModal} user={user}/>}
+      {tab==='inventory'&&<InventoryView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
+      {tab==='catalog'&&<CatalogView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
+      {tab==='reorder'&&<ReorderView data={viewData} openModal={openModal} user={user}/>}
+      {tab==='locations'&&<LocationsView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
+      {tab==='settings'&&<SettingsView user={user} data={data}/>}
       </div>
       {showMore&&<div onClick={()=>setShowMore(false)} style={{position:'fixed',inset:0,zIndex:99}}/>}
       {showMore&&(
@@ -1133,7 +1166,7 @@ export default function App(){
         </button>
       </nav>
       {modal?.type==='adjust'&&<AdjustModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
-      {modal?.type==='consume'&&<ConsumeModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
+      {modal?.type==='consume'&&<ConsumeModal stockId={modal.stockId} locId={modal.locId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='transfer'&&<TransferModal prefillItemId={modal.prefillItemId} prefillFromId={modal.prefillFromId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='add-item'&&<AddEditItemModal editItem={null} prefill={modal.prefill} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='edit-item'&&<AddEditItemModal editItem={modal.item} data={data} refresh={refresh} onClose={closeModal} user={user}/>} 

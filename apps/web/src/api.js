@@ -22,7 +22,7 @@ export const api = {
   // ── Auth ──────────────────────────────────────────────────
   login: (pin)                                        => req('POST',   '/auth/login',       { pin }),
   listUsers: ()                                       => req('GET',    '/auth/users'),
-  createUser: (name, pin, role)                       => req('POST',   '/auth/users',       { name, pin, role }),
+  createUser: (name, pin, role, locationIds)           => req('POST',   '/auth/users',       { name, pin, role, locationIds }),
   updateUser: (id, dto)                               => req('PUT',    `/auth/users/${id}`, dto),
   deleteUser: (id)                                    => req('DELETE', `/auth/users/${id}`),
 

@@ -14,6 +14,9 @@ export class User {
   @Column({ default: 'staff' }) // 'admin' | 'staff'
   role: string;
 
+  @Column({ type: 'simple-json', default: '[]' })
+  locationIds: string[];
+
   @CreateDateColumn()
   createdAt: Date;
 }

@@ -16,8 +16,8 @@ export class AuthController {
   }
 
   @Post('users')
-  createUser(@Body() body: { name: string; pin: string; role?: string }) {
-    return this.svc.createUser(body.name, body.pin, body.role);
+  createUser(@Body() body: { name: string; pin: string; role?: string; locationIds?: string[] }) {
+    return this.svc.createUser(body.name, body.pin, body.role, body.locationIds);
   }
 
   @Put('users/:id')
