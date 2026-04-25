@@ -501,7 +501,7 @@ function InventoryView({data,refresh,openModal,user}){
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:600,fontSize:14,fontFamily:ff,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',color:isSel?C.cream:C.warm}}>{it.name}{isLow&&<Tag color="red">LOW</Tag>}</div>
                 {it.desc&&<div style={{fontSize:11.5,marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:ff,color:C.warmL}}>{it.desc}</div>}
-                {!isSel&&it.supplier&&user?.role==='admin'&&<div style={{fontSize:11,color:C.warmL,marginTop:1,fontFamily:ff}}>{it.supplier}</div>}
+                {!isSel&&it.supplier&&(user?.role==='admin'||!data.settings?.hiddenFields?.includes('supplier'))&&<div style={{fontSize:11,color:C.warmL,marginTop:1,fontFamily:ff}}>{it.supplier}</div>}
                 {isSel&&<div style={{fontSize:11,color:C.warmL,marginTop:3,fontFamily:ff}}>Tap row again to deselect</div>}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}} onClick={e=>e.stopPropagation()}>
@@ -587,7 +587,7 @@ function CatalogView({data,refresh,openModal,user}){
                 {it.desc&&<div style={{color:C.warmM,fontSize:12.5,marginTop:3,lineHeight:1.4,fontFamily:ff}}>{it.desc}</div>}
                 <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8,alignItems:'center'}}>
                   <Tag color="gold">{it.uom}</Tag>
-                  {it.supplier&&user?.role==='admin'&&<Tag color="gold">📦 {it.supplier}</Tag>}
+                  {it.supplier&&(user?.role==='admin'||!data.settings?.hiddenFields?.includes('supplier'))&&<Tag color="gold">📦 {it.supplier}</Tag>}
                   <span style={{fontSize:11,color:C.warmL,fontFamily:ff}}>Low at: {it.lowAt}</span>
                 </div>
                 <div style={{fontSize:12,color:C.warmM,marginTop:6,fontFamily:ff}}>{totalQty} total units · {locCount} location{locCount!==1?'s':''}</div>
@@ -906,7 +906,7 @@ function ReorderView({data,openModal,user}){
                   <div style={{fontWeight:700,fontSize:15,fontFamily:ff,color:C.warm}}>{it.name}</div>
                   <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:5,alignItems:'center'}}>
                     <Tag color="gold">{it.uom}</Tag>
-                    {user?.role==='admin'&&(it.supplier?<Tag color="gold">📦 {it.supplier}</Tag>:<span style={{fontSize:11,color:C.beigeD,fontFamily:ff,fontStyle:'italic'}}>No supplier set</span>)}
+                    {(user?.role==='admin'||!data.settings?.hiddenFields?.includes('supplier'))&&(it.supplier?<Tag color="gold">📦 {it.supplier}</Tag>:(user?.role==='admin'&&<span style={{fontSize:11,color:C.beigeD,fontFamily:ff,fontStyle:'italic'}}>No supplier set</span>))}
                     <span style={{fontSize:11,color:C.warmL,fontFamily:ff}}>threshold: {it.lowAt}</span>
                   </div>
                 </div>
@@ -957,7 +957,7 @@ function ReorderView({data,openModal,user}){
 
 
 // ─── SETTINGS VIEW ────────────────────────────────────────
-function SettingsView({user,data}){
+function SettingsView({user,data,refresh}){
   const [users,setUsers]=useState([]);
   const [loading,setLoading]=useState(true);
   const [modal,setModal]=useState(null); // {type:'add'} or {type:'edit',u}
@@ -1052,6 +1052,40 @@ function SettingsView({user,data}){
           <Btn onClick={save} variant="dark" size="lg">Save</Btn>
         </Sheet>
       )}
+      {/* Field Visibility */}
+      {(() => {
+        const hiddenFields = data.settings?.hiddenFields ?? ['supplier'];
+        const FIELDS = [{key:'supplier',label:'Supplier',desc:'Item supplier name shown in Inventory, Catalog, and Reorder views'}];
+        const toggle = async key => {
+          const isHidden = hiddenFields.includes(key);
+          const next = isHidden ? hiddenFields.filter(f=>f!==key) : [...hiddenFields, key];
+          const newSettings = {...(data.settings??{}), hiddenFields: next};
+          await api.updateSettings(newSettings);
+          await refresh();
+        };
+        return(
+          <div style={{marginTop:28}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+              <div style={{fontFamily:fs,fontSize:18,color:C.warm,fontWeight:700}}>Field Visibility</div>
+            </div>
+            <div style={{fontSize:12,color:C.warmL,marginBottom:14,fontFamily:ff}}>Control what staff can see. Admins always see everything.</div>
+            {FIELDS.map(f=>{
+              const hidden=hiddenFields.includes(f.key);
+              return(
+                <div key={f.key} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',alignItems:'center',gap:12,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:14,fontFamily:ff,color:C.warm}}>{f.label}</div>
+                    <div style={{fontSize:12,color:C.warmL,marginTop:2,fontFamily:ff}}>{f.desc}</div>
+                  </div>
+                  <button onClick={()=>toggle(f.key)} style={{width:44,height:26,borderRadius:13,border:'none',cursor:'pointer',background:hidden?C.beigeD:C.gold,position:'relative',transition:'background .2s',flexShrink:0,padding:0}}>
+                    <div style={{position:'absolute',top:4,left:hidden?4:22,width:18,height:18,borderRadius:'50%',background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,.25)'}}/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1131,7 +1165,7 @@ export default function App(){
       {tab==='catalog'&&<CatalogView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
       {tab==='reorder'&&<ReorderView data={viewData} openModal={openModal} user={user}/>}
       {tab==='locations'&&<LocationsView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
-      {tab==='settings'&&<SettingsView user={user} data={data}/>}
+      {tab==='settings'&&<SettingsView user={user} data={data} refresh={refresh}/>}
       </div>
       {showMore&&<div onClick={()=>setShowMore(false)} style={{position:'fixed',inset:0,zIndex:99}}/>}
       {showMore&&(

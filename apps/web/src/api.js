@@ -44,4 +44,7 @@ export const api = {
 
   // ── Import ────────────────────────────────────────────────
   bulkImport: (rows)                                 => req('POST',   '/import',           { rows }),
+
+  // ── Settings ──────────────────────────────────────────────
+  updateSettings: (config)                           => req('PUT',    '/settings',         config),
 };
