@@ -29,6 +29,72 @@ function dayLabel(ts){
   return d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'});
 }
 
+function getLocationHierarchy(locations){
+  const byId=new Map(locations.map(l=>[l.id,l]));
+  const childrenByParent=new Map();
+  locations.forEach(l=>{
+    if(!l.parentId||!byId.has(l.parentId))return;
+    if(!childrenByParent.has(l.parentId))childrenByParent.set(l.parentId,[]);
+    childrenByParent.get(l.parentId).push(l);
+  });
+
+  const parentIdsWithChildren=new Set(childrenByParent.keys());
+  const parents=locations
+    .filter(l=>!l.parentId&&parentIdsWithChildren.has(l.id))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  const standalones=locations
+    .filter(l=>!l.parentId&&!parentIdsWithChildren.has(l.id))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+
+  const ordered=[];
+  parents.forEach(p=>{
+    ordered.push({loc:p,kind:'parent'});
+    const kids=[...(childrenByParent.get(p.id)||[])].sort((a,b)=>a.name.localeCompare(b.name));
+    kids.forEach(c=>ordered.push({loc:c,kind:'child',parentId:p.id}));
+  });
+  standalones.forEach(s=>ordered.push({loc:s,kind:'standalone'}));
+
+  return {byId,childrenByParent,parentIdsWithChildren,ordered};
+}
+
+function getLowGroups(data){
+  const {byId,childrenByParent,parentIdsWithChildren}=getLocationHierarchy(data.locations);
+  const groups=[];
+
+  data.items.forEach(item=>{
+    // Parent locations are evaluated as one aggregate across all child locations.
+    parentIdsWithChildren.forEach(parentId=>{
+      const childIds=(childrenByParent.get(parentId)||[]).map(l=>l.id);
+      const totalQty=data.stock
+        .filter(s=>s.iid===item.id&&childIds.includes(s.lid))
+        .reduce((a,s)=>a+s.qty,0);
+      if(totalQty<=item.lowAt){
+        groups.push({
+          label:byId.get(parentId)?.name||'Unknown location',
+          iid:item.id,
+          totalQty,
+          locationIds:childIds,
+        });
+      }
+    });
+
+    // Standalone locations are evaluated individually like before.
+    data.stock
+      .filter(s=>s.iid===item.id)
+      .forEach(s=>{
+        const loc=byId.get(s.lid);
+        if(!loc)return;
+        if(loc.parentId)return;
+        if(parentIdsWithChildren.has(loc.id))return;
+        if(s.qty<=item.lowAt){
+          groups.push({label:loc.name,iid:item.id,totalQty:s.qty,locationIds:[loc.id]});
+        }
+      });
+  });
+
+  return groups;
+}
+
 // ─── ICONS ────────────────────────────────────────────────
 const Ic={
   dash:<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 8h1a4 4 0 010 8h-1"/><path d="M3 8h14v9a4 4 0 01-4 4H7a4 4 0 01-4-4V8z"/><line x1="7" y1="3" x2="7" y2="6" strokeLinecap="round"/><line x1="11" y1="2" x2="11" y2="5" strokeLinecap="round"/><line x1="15" y1="3" x2="15" y2="6" strokeLinecap="round"/></svg>,
@@ -242,18 +308,60 @@ function AddEditItemModal({editItem,prefill,user,data,refresh,onClose}){
   );
 }
 
-function AddLocationModal({data,refresh,onClose}){
-  const [name,setName]=useState('');
+function AddEditLocationModal({editLocation,data,refresh,onClose}){
+  const [name,setName]=useState(editLocation?.name||'');
+  const [parentId,setParentId]=useState(editLocation?.parentId||'');
   const [err,setErr]=useState('');
+
+  const eligibleParents=data.locations
+    .filter(l=>!l.parentId&&l.id!==editLocation?.id)
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .map(l=>({value:l.id,label:l.name}));
+
   const save=async()=>{
-    if(!name.trim()){setErr('Location name is required');return;}
-    try{await api.createLocation(name.trim());await refresh();onClose();}catch(e){setErr(e.message);}
+    setErr('');
+    const cleanName=name.trim();
+    if(!cleanName){setErr('Location name is required');return;}
+
+    const duplicate=data.locations.find(
+      l=>l.name.trim().toLowerCase()===cleanName.toLowerCase()&&l.id!==editLocation?.id,
+    );
+    if(duplicate){setErr('Location already exists');return;}
+
+    const nextParentId=parentId||null;
+
+    try{
+      if(!editLocation){
+        await api.createLocation(cleanName,nextParentId);
+      }else{
+        if(editLocation.parentId!==nextParentId&&nextParentId){
+          const newParent=data.locations.find(l=>l.id===nextParentId);
+          const ok=window.confirm(
+            `This will move ${cleanName} from its current parent to ${newParent?.name||'the selected parent'}. Continue?`,
+          );
+          if(!ok)return;
+        }
+        await api.updateLocation(editLocation.id,{name:cleanName,parentId:nextParentId});
+      }
+      await refresh();
+      onClose();
+    }catch(e){
+      setErr(e.message);
+    }
   };
+
   return(
-    <Sheet title="Add Location" onClose={onClose}>
+    <Sheet title={editLocation?'Edit Location':'Add Location'} onClose={onClose}>
       <Inp label="Location Name" value={name} onChange={setName} placeholder="e.g. Downtown Branch" required/>
+      <Sel
+        label="Roll up under a parent"
+        value={parentId}
+        onChange={setParentId}
+        options={eligibleParents}
+        placeholder="No parent (standalone)"
+      />
       <ErrBox msg={err}/>
-      <Btn onClick={save} variant="dark" size="lg">Add Location</Btn>
+      <Btn onClick={save} variant="dark" size="lg">{editLocation?'Save Changes':'Add Location'}</Btn>
     </Sheet>
   );
 }
@@ -295,7 +403,8 @@ function ConfirmModal({title,message,onConfirm,onClose}){
 
 // ─── VIEWS ────────────────────────────────────────────────
 function DashboardView({data,openModal,user}){
-  const low=data.stock.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
+  const lowGroups=getLowGroups(data);
+  const stockByItemAndLoc=new Map(data.stock.map(s=>[`${s.iid}:${s.lid}`,s]));
   const recentLog=(data.log||[]).slice(0,5);
   return(
     <div style={{padding:'18px 16px'}}>
@@ -307,20 +416,24 @@ function DashboardView({data,openModal,user}){
           </div>
         ))}
       </div>
-      {low.length>0?(
+      {lowGroups.length>0?(
         <>
-          <SecHead title={`⚠ Low Stock (${low.length})`}/>
-          {low.map(s=>{
-            const it=data.items.find(i=>i.id===s.iid);
-            const lc=data.locations.find(l=>l.id===s.lid);
+          <SecHead title={`⚠ Low Stock (${lowGroups.length})`}/>
+          {lowGroups.map((g,idx)=>{
+            const it=data.items.find(i=>i.id===g.iid);
+            const standaloneStock=g.locationIds.length===1?stockByItemAndLoc.get(`${g.iid}:${g.locationIds[0]}`):null;
+            const handleClick=()=>{
+              if(standaloneStock)openModal({type:'adjust',stockId:standaloneStock.id});
+              else openModal({type:'transfer',prefillItemId:g.iid,prefillFromId:''});
+            };
             return(
-              <div key={s.id} onClick={()=>openModal({type:'adjust',stockId:s.id})} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',borderLeft:`3.5px solid ${C.red}`,cursor:'pointer',boxShadow:'0 1px 6px rgba(0,0,0,.06)'}}>
+              <div key={`${g.iid}-${g.label}-${idx}`} onClick={handleClick} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',borderLeft:`3.5px solid ${C.red}`,cursor:'pointer',boxShadow:'0 1px 6px rgba(0,0,0,.06)'}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:14,fontFamily:ff}}>{it?.name}</div>
-                  <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{lc?.name}</div>
+                  <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{g.label}</div>
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                  <div style={{background:C.redL,color:C.red,padding:'4px 14px',borderRadius:22,fontWeight:700,fontSize:17,fontFamily:fs}}>{s.qty}<span style={{fontSize:11,fontWeight:400,fontFamily:ff}}> {it?.uom}</span></div>
+                  <div style={{background:C.redL,color:C.red,padding:'4px 14px',borderRadius:22,fontWeight:700,fontSize:17,fontFamily:fs}}>{g.totalQty}<span style={{fontSize:11,fontWeight:400,fontFamily:ff}}> {it?.uom}</span></div>
                   <div style={{lineHeight:0,color:C.warmL}}>{Ic.chevR}</div>
                 </div>
               </div>
@@ -334,7 +447,7 @@ function DashboardView({data,openModal,user}){
           <div style={{color:C.warmL,fontSize:13,marginTop:4,fontFamily:ff}}>Every item is above its reorder threshold</div>
         </div>
       )}
-      <div style={{marginTop:low.length?16:0}}>
+      <div style={{marginTop:lowGroups.length?16:0}}>
         <SecHead title="Locations Overview" action={user?.role==='admin'&&<Btn variant="secondary" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add</Btn>}/>
         {data.locations.map(loc=>{
           const ls=data.stock.filter(s=>s.lid===loc.id);
@@ -607,24 +720,57 @@ function CatalogView({data,refresh,openModal,user}){
 
 function LocationsView({data,refresh,openModal,user}){
   const deleteLoc=async id=>{try{await api.deleteLocation(id);await refresh();}catch(e){alert(e.message);}};
+  const {childrenByParent,ordered}=getLocationHierarchy(data.locations);
+
+  const getChildren=(parentId)=>childrenByParent.get(parentId)||[];
+  const getLocationStock=(locId)=>data.stock.filter(s=>s.lid===locId);
+  const getLocationLowCount=(locId)=>{
+    const ls=getLocationStock(locId);
+    return ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;}).length;
+  };
+
   return(
     <div style={{padding:'14px 16px'}}>
       {user?.role==='admin'&&<div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
-        <Btn variant="dark" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add Location</Btn>
+        <Btn variant="dark" size="sm" onClick={()=>openModal({type:'add-location',editLocation:null})}>{Ic.plus} Add Location</Btn>
       </div>}
       {data.locations.length===0&&<div style={{textAlign:'center',padding:'50px 0',color:C.warmL,fontFamily:ff}}><div style={{fontSize:36,marginBottom:10}}>🏪</div><div style={{fontWeight:600}}>No locations yet</div><div style={{fontSize:13,marginTop:4}}>Add your first café location</div></div>}
-      {data.locations.map(loc=>{
-        const ls=data.stock.filter(s=>s.lid===loc.id);
+      {ordered.map(({loc,kind})=>{
+        const isParent=kind==='parent';
+        const isChild=kind==='child';
+        const isStandalone=kind==='standalone';
+
+        const children=isParent?getChildren(loc.id):[];
+        const childIds=children.map(c=>c.id);
+        const ls=isParent
+          ?data.stock.filter(s=>childIds.includes(s.lid))
+          :getLocationStock(loc.id);
         const hasStock=ls.some(s=>s.qty>0);
-        const ll=ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
+        const ll=isParent
+          ?ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;})
+          :getLocationLowCount(loc.id);
+
         return(
-          <div key={loc.id} style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+          <div key={loc.id} style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)',marginLeft:isChild?22:0,borderLeft:isChild?`3px solid ${C.beigeD}`:'none'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
               <div>
-                <div style={{fontWeight:700,fontSize:15,fontFamily:ff,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>{loc.name}{ll.length>0&&<Tag color="red">{ll.length} low</Tag>}</div>
-                <div style={{fontSize:12.5,color:C.warmM,marginTop:4,fontFamily:ff}}>{ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} total units</div>
+                <div style={{fontWeight:700,fontSize:15,fontFamily:ff,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                  {isChild&&<span style={{color:C.warmL}}>↳</span>}
+                  {loc.name}
+                  {isParent&&<Tag color="gold">Parent</Tag>}
+                  {isChild&&<Tag color="amber">Child</Tag>}
+                  {isStandalone&&<Tag color="green">Standalone</Tag>}
+                  {(isParent?ll.length:ll)>0&&<Tag color="red">{isParent?ll.length:ll} low</Tag>}
+                </div>
+                <div style={{fontSize:12.5,color:C.warmM,marginTop:4,fontFamily:ff}}>
+                  {ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} total units
+                  {isParent&&<span style={{marginLeft:6,color:C.warmL}}>(children aggregate)</span>}
+                </div>
               </div>
-              <button disabled={hasStock} onClick={()=>openModal({type:'confirm',title:'Remove Location',message:`Remove "${loc.name}"? This cannot be undone.`,onConfirm:()=>deleteLoc(loc.id)})} title={hasStock?'Cannot remove location with stock':'Remove location'} style={{padding:'7px 12px',borderRadius:9,border:'none',cursor:hasStock?'not-allowed':'pointer',background:hasStock?C.beige:C.redL,color:hasStock?C.beigeD:C.red,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,opacity:hasStock?.4:1,lineHeight:1}}>{Ic.trash} {hasStock?'In Use':'Remove'}</button>
+              <div style={{display:'flex',gap:6,flexShrink:0}}>
+                <button onClick={()=>openModal({type:'add-location',editLocation:loc})} style={{padding:'7px 12px',borderRadius:9,border:`1.5px solid ${C.beigeD}`,cursor:'pointer',background:C.beige,color:C.warmM,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.edit} Edit</button>
+                <button disabled={hasStock||isParent} onClick={()=>openModal({type:'confirm',title:'Remove Location',message:`Remove "${loc.name}"? This cannot be undone.`,onConfirm:()=>deleteLoc(loc.id)})} title={isParent?'Cannot remove parent locations':'Remove location'} style={{padding:'7px 12px',borderRadius:9,border:'none',cursor:(hasStock||isParent)?'not-allowed':'pointer',background:(hasStock||isParent)?C.beige:C.redL,color:(hasStock||isParent)?C.beigeD:C.red,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,opacity:(hasStock||isParent)?.4:1,lineHeight:1}}>{Ic.trash} {(hasStock||isParent)?'In Use':'Remove'}</button>
+              </div>
             </div>
             {ls.length>0&&(
               <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.beige}`,display:'flex',flexWrap:'wrap',gap:6}}>
@@ -863,16 +1009,21 @@ function ConsumeModal({stockId,locId,data,refresh,onClose,user}){
 
 // ─── REORDER VIEW ─────────────────────────────────────────
 function ReorderView({data,openModal,user}){
-  // Collect all low-stock entries grouped by item
-  const lowEntries=data.stock.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
-  // Group by item id
-  const grouped=data.items.map(it=>{
-    const lows=lowEntries.filter(s=>s.iid===it.id);
-    return lows.length?{it,lows}:null;
-  }).filter(Boolean);
-  // Sort: most locations affected first, then alphabetical
+  const lowGroups=getLowGroups(data);
+  const stockByItemAndLoc=new Map(data.stock.map(s=>[`${s.iid}:${s.lid}`,s]));
+  const grouped=data.items
+    .map(it=>{
+      const lows=lowGroups.filter(g=>g.iid===it.id);
+      return lows.length?{it,lows}:null;
+    })
+    .filter(Boolean);
+
   grouped.sort((a,b)=>b.lows.length-a.lows.length||a.it.name.localeCompare(b.it.name));
-  const totalShort=grouped.reduce((a,g)=>a+g.lows.reduce((b,s)=>b+Math.max(0,g.it.lowAt-s.qty+1),0),0);
+
+  const totalShort=grouped.reduce(
+    (a,g)=>a+g.lows.reduce((b,s)=>b+Math.max(0,g.it.lowAt-s.totalQty+1),0),
+    0,
+  );
 
   if(grouped.length===0)return(
     <div style={{padding:'60px 24px',textAlign:'center',color:C.warmL,fontFamily:ff}}>
@@ -891,12 +1042,12 @@ function ReorderView({data,openModal,user}){
         </div>
         <div>
           <div style={{fontFamily:fs,fontSize:18,color:C.gold,fontWeight:700,lineHeight:1}}>{grouped.length} item{grouped.length!==1?'s':''} need reordering</div>
-          <div style={{fontSize:12,color:C.warmL,marginTop:3,fontFamily:ff}}>{lowEntries.length} location{lowEntries.length!==1?'s':''} affected · ~{totalShort} units short</div>
+          <div style={{fontSize:12,color:C.warmL,marginTop:3,fontFamily:ff}}>{lowGroups.length} location group{lowGroups.length!==1?'s':''} affected · ~{totalShort} units short</div>
         </div>
       </div>
 
       {grouped.map(({it,lows})=>{
-        const totalShortItem=lows.reduce((a,s)=>a+Math.max(0,it.lowAt-s.qty+1),0);
+        const totalShortItem=lows.reduce((a,s)=>a+Math.max(0,it.lowAt-s.totalQty+1),0);
         return(
           <div key={it.id} style={{background:'#fff',borderRadius:14,marginBottom:12,overflow:'hidden',boxShadow:'0 1px 8px rgba(0,0,0,.07)',borderLeft:`4px solid ${C.red}`}}>
             {/* Item header */}
@@ -916,27 +1067,30 @@ function ReorderView({data,openModal,user}){
               </div>
             </div>
             {/* Per-location rows */}
-            {lows.map(s=>{
-              const lc=data.locations.find(l=>l.id===s.lid);
-              const short=Math.max(0,it.lowAt-s.qty+1);
+            {lows.map((g,idx)=>{
+              const short=Math.max(0,it.lowAt-g.totalQty+1);
+              const standaloneStock=g.locationIds.length===1?stockByItemAndLoc.get(`${it.id}:${g.locationIds[0]}`):null;
               return(
-                <div key={s.id} style={{padding:'10px 16px',display:'flex',alignItems:'center',gap:10,borderBottom:`1px solid ${C.beige}`}}>
+                <div key={`${it.id}-${g.label}-${idx}`} style={{padding:'10px 16px',display:'flex',alignItems:'center',gap:10,borderBottom:`1px solid ${C.beige}`}}>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontWeight:500,fontSize:13,fontFamily:ff,color:C.warmM}}>{lc?.name}</div>
+                    <div style={{fontWeight:500,fontSize:13,fontFamily:ff,color:C.warmM}}>{g.label}</div>
                     <div style={{fontSize:11.5,color:C.warmL,marginTop:1,fontFamily:ff}}>
-                      <span style={{color:C.red,fontWeight:600}}>{s.qty}</span> {it.uom} · needs {short} more to reach threshold
+                      <span style={{color:C.red,fontWeight:600}}>{g.totalQty}</span> {it.uom} · needs {short} more to reach threshold
                     </div>
                   </div>
                   <div style={{display:'flex',gap:6,flexShrink:0}}>
                     <button onClick={()=>openModal({type:'transfer',prefillItemId:it.id,prefillFromId:''})} style={{padding:'6px 10px',borderRadius:8,border:`1.5px solid ${C.beigeD}`,background:C.beige,color:C.warmM,cursor:'pointer',display:'flex',alignItems:'center',gap:4,fontFamily:ff,fontSize:12,fontWeight:500,lineHeight:1}}>{Ic.trans} Transfer</button>
-                    <button onClick={()=>openModal({type:'adjust',stockId:s.id})} style={{padding:'6px 10px',borderRadius:8,border:`1.5px solid ${C.gold}`,background:C.goldP,color:C.warm,cursor:'pointer',fontFamily:ff,fontSize:12,fontWeight:600,lineHeight:1}}>+ Adjust</button>
+                    {standaloneStock&&<button onClick={()=>openModal({type:'adjust',stockId:standaloneStock.id})} style={{padding:'6px 10px',borderRadius:8,border:`1.5px solid ${C.gold}`,background:C.goldP,color:C.warm,cursor:'pointer',fontFamily:ff,fontSize:12,fontWeight:600,lineHeight:1}}>+ Adjust</button>}
                   </div>
                 </div>
               );
             })}
             {/* Item footer: transfer from best-stocked */}
             {(()=>{
-              const best=data.stock.filter(s=>s.iid===it.id&&!lows.find(l=>l.id===s.id)&&s.qty>it.lowAt).sort((a,b)=>b.qty-a.qty)[0];
+              const lowLocIds=new Set(lows.flatMap(l=>l.locationIds));
+              const best=data.stock
+                .filter(s=>s.iid===it.id&&!lowLocIds.has(s.lid)&&s.qty>it.lowAt)
+                .sort((a,b)=>b.qty-a.qty)[0];
               if(!best)return null;
               const bestLoc=data.locations.find(l=>l.id===best.lid);
               return(
@@ -1132,7 +1286,7 @@ export default function App(){
   );
   const hasLocRestriction=user?.role!=='admin'&&user?.locationIds?.length>0;
   const viewData=hasLocRestriction?{...data,locations:data.locations.filter(l=>user.locationIds.includes(l.id)),stock:data.stock.filter(s=>user.locationIds.includes(s.lid))}:data;
-  const low=viewData.stock.filter(s=>{const it=viewData.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
+  const low=getLowGroups(viewData);
   const settingsIcon=<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
   const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
   const MORE_TABS=[{key:'reorder',label:'Reorder',icon:Ic.reorder},{key:'locations',label:'Locations',icon:Ic.loc},...(user?.role==='admin'?[{key:'settings',label:'Settings',icon:settingsIcon}]:[])];
@@ -1204,7 +1358,7 @@ export default function App(){
       {modal?.type==='transfer'&&<TransferModal prefillItemId={modal.prefillItemId} prefillFromId={modal.prefillFromId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='add-item'&&<AddEditItemModal editItem={null} prefill={modal.prefill} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
       {modal?.type==='edit-item'&&<AddEditItemModal editItem={modal.item} data={data} refresh={refresh} onClose={closeModal} user={user}/>} 
-      {modal?.type==='add-location'&&<AddLocationModal data={data} refresh={refresh} onClose={closeModal}/>} 
+      {modal?.type==='add-location'&&<AddEditLocationModal editLocation={modal.editLocation??null} data={data} refresh={refresh} onClose={closeModal}/>} 
       {modal?.type==='add-stock'&&<AddStockModal locationId={modal.locationId} data={data} refresh={refresh} onClose={closeModal}/>} 
       {modal?.type==='import'&&<Sheet title="Upload from CSV" onClose={closeModal}><ImportView data={data} refresh={refresh}/></Sheet>} 
       {modal?.type==='confirm'&&<ConfirmModal title={modal.title} message={modal.message} onConfirm={modal.onConfirm} onClose={closeModal}/>} 

@@ -27,7 +27,8 @@ export const api = {
   deleteUser: (id)                                    => req('DELETE', `/auth/users/${id}`),
 
   // ── Locations ─────────────────────────────────────────────
-  createLocation: (name)                              => req('POST',   '/locations',        { name }),
+  createLocation: (name, parentId = null)            => req('POST',   '/locations',        { name, parentId }),
+  updateLocation: (id, dto)                          => req('PUT',    `/locations/${id}`,  dto),
   deleteLocation: (id)                                => req('DELETE', `/locations/${id}`),
 
   // ── Items ─────────────────────────────────────────────────

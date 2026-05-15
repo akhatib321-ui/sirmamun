@@ -8,6 +8,9 @@ export class Location {
   @Column({ unique: true })
   name: string;
 
+  @Column({ nullable: true, default: null })
+  parentId: string;
+
   @CreateDateColumn()
   createdAt: Date;
 }
