@@ -1,0 +1,27 @@
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #EDE4D5;
+}
+
+:root {
+  --app-w: 560px;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --app-w: 840px;
+  }
+}
+
+/* Card shadow only appears on desktop where the container doesn't fill the viewport */
+.app-shell {
+  box-shadow: none !important;
+}
+
+@media (min-width: 768px) {
+  .app-shell {
+    box-shadow: 0 0 0 1px rgba(0,0,0,.06), 0 8px 40px rgba(0,0,0,.12) !important;
+  }
+}

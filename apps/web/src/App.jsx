@@ -449,19 +449,28 @@ function DashboardView({data,openModal,user}){
       )}
       <div style={{marginTop:lowGroups.length?16:0}}>
         <SecHead title="Locations Overview" action={user?.role==='admin'&&<Btn variant="secondary" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add</Btn>}/>
-        {data.locations.map(loc=>{
-          const ls=data.stock.filter(s=>s.lid===loc.id);
-          const ll=ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;});
-          return(
-            <div key={loc.id} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
-              <div>
-                <div style={{fontWeight:600,fontSize:14,fontFamily:ff}}>{loc.name}</div>
-                <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} units</div>
-              </div>
-              {ll.length>0&&<Tag color="red">{ll.length} low</Tag>}
-            </div>
-          );
-        })}
+        {(()=>{
+          const {childrenByParent,parentIdsWithChildren,ordered:locOrdered}=getLocationHierarchy(data.locations);
+          return locOrdered
+            .filter(({kind})=>kind==='parent'||kind==='standalone')
+            .map(({loc,kind})=>{
+              const isParent=kind==='parent';
+              const childIds=isParent?(childrenByParent.get(loc.id)||[]).map(c=>c.id):[];
+              const ls=isParent?data.stock.filter(s=>childIds.includes(s.lid)):data.stock.filter(s=>s.lid===loc.id);
+              const lowCt=isParent
+                ?data.items.filter(item=>{const cs=data.stock.filter(s=>s.iid===item.id&&childIds.includes(s.lid));return cs.length>0&&cs.reduce((a,s)=>a+s.qty,0)<=item.lowAt;}).length
+                :ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;}).length;
+              return(
+                <div key={loc.id} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:14,fontFamily:ff}}>{loc.name}</div>
+                    <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} units{isParent&&<span style={{marginLeft:4,color:C.warmL}}>(aggregate)</span>}</div>
+                  </div>
+                  {lowCt>0&&<Tag color="red">{lowCt} low</Tag>}
+                </div>
+              );
+            });
+        })()}
       </div>
       {/* Recent Activity */}
       <div style={{marginTop:20}}>
@@ -477,7 +486,10 @@ function DashboardView({data,openModal,user}){
 }
 
 function InventoryView({data,refresh,openModal,user}){
-  const [locId,setLocId]=useState(data.locations[0]?.id||'');
+  const {parentIdsWithChildren,childrenByParent}=getLocationHierarchy(data.locations);
+  const selectableLocs=data.locations.filter(l=>!parentIdsWithChildren.has(l.id));
+  const [locId,setLocId]=useState(selectableLocs[0]?.id||'');
+  const [pickerOpen,setPickerOpen]=useState(false);
   const [search,setSearch]=useState('');
   const [selectedId,setSelectedId]=useState(null);
   const [countMode,setCountMode]=useState(false);
@@ -518,14 +530,67 @@ function InventoryView({data,refresh,openModal,user}){
     setTimeout(()=>setSaved(null),3000);
   };
 
+  const currentLoc=data.locations.find(l=>l.id===locId);
+  const parentLocs=data.locations.filter(l=>!l.parentId&&parentIdsWithChildren.has(l.id)).sort((a,b)=>a.name.localeCompare(b.name));
+  const standaloneLocs=data.locations.filter(l=>!l.parentId&&!parentIdsWithChildren.has(l.id)).sort((a,b)=>a.name.localeCompare(b.name));
+  const selectLoc=id=>{setLocId(id);setSearch('');setSelectedId(null);setPickerOpen(false);};
+  const chevDown=<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="6 9 12 15 18 9"/></svg>;
+
   return(
     <div style={{paddingBottom:16}}>
-      {/* Location chips — locked during count */}
-      <div style={{padding:'12px 16px 10px',overflowX:'auto',display:'flex',gap:8,borderBottom:`1px solid ${C.beige}`,scrollbarWidth:'none',WebkitOverflowScrolling:'touch'}}>
-        {data.locations.map(l=>(
-          <Chip key={l.id} active={locId===l.id} onClick={()=>{if(countMode)return;setLocId(l.id);setSearch('');setSelectedId(null);}}>{l.name}</Chip>
-        ))}
+      {/* Location picker trigger */}
+      <div style={{padding:'10px 16px',borderBottom:`1px solid ${C.beige}`}}>
+        <button onClick={()=>{if(countMode)return;setPickerOpen(true);}} style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'10px 14px',borderRadius:11,border:`1.5px solid ${countMode?C.beige:C.beigeD}`,background:countMode?C.beige:'#fff',cursor:countMode?'not-allowed':'pointer',fontFamily:ff,gap:8,boxShadow:'0 1px 4px rgba(0,0,0,.06)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,minWidth:0}}>
+            <span style={{lineHeight:0,color:C.warmL,flexShrink:0}}>{Ic.loc}</span>
+            <span style={{fontWeight:600,fontSize:14,color:countMode?C.warmL:C.warm,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{currentLoc?.name||'Select Location'}</span>
+          </div>
+          <span style={{lineHeight:0,color:C.warmL,flexShrink:0}}>{chevDown}</span>
+        </button>
       </div>
+
+      {/* Location picker bottom sheet */}
+      {pickerOpen&&(
+        <div style={{position:'fixed',inset:0,zIndex:300,display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>
+          <div onClick={()=>setPickerOpen(false)} style={{flex:1,background:'rgba(10,9,8,.65)',backdropFilter:'blur(3px)'}}/>
+          <div style={{background:C.cream,borderRadius:'22px 22px 0 0',maxHeight:'80vh',overflowY:'auto',paddingBottom:'max(env(safe-area-inset-bottom),24px)',boxShadow:'0 -4px 40px rgba(0,0,0,.2)'}}>
+            <div style={{position:'sticky',top:0,background:C.cream,zIndex:2,borderRadius:'22px 22px 0 0'}}>
+              <div style={{display:'flex',justifyContent:'center',padding:'12px 0 6px'}}><div style={{width:40,height:4,background:C.beigeD,borderRadius:2}}/></div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0 20px 14px',borderBottom:`1px solid ${C.beige}`}}>
+                <span style={{fontFamily:fs,fontSize:20,fontWeight:700,color:C.warm}}>Select Location</span>
+                <button onClick={()=>setPickerOpen(false)} style={{background:C.beige,border:'none',borderRadius:9,padding:'7px',cursor:'pointer',display:'flex',color:C.warmM,lineHeight:0}}>{Ic.close}</button>
+              </div>
+            </div>
+            <div style={{padding:'8px 0 8px'}}>
+              {parentLocs.map(parent=>{
+                const kids=(childrenByParent.get(parent.id)||[]).sort((a,b)=>a.name.localeCompare(b.name));
+                return(
+                  <div key={parent.id}>
+                    <div style={{padding:'14px 20px 6px',fontSize:11,fontWeight:700,letterSpacing:1.2,textTransform:'uppercase',color:C.warmL,fontFamily:ff}}>{parent.name}</div>
+                    {kids.map(child=>(
+                      <button key={child.id} onClick={()=>selectLoc(child.id)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'13px 20px 13px 32px',border:'none',background:locId===child.id?C.goldP:'transparent',cursor:'pointer',fontFamily:ff,borderBottom:`1px solid ${C.beige}`}}>
+                        <span style={{fontSize:14.5,fontWeight:locId===child.id?600:400,color:locId===child.id?C.warm:C.warmM}}>{child.name}</span>
+                        {locId===child.id&&<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2.8"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+              {standaloneLocs.length>0&&(
+                <div>
+                  {parentLocs.length>0&&<div style={{padding:'14px 20px 6px',fontSize:11,fontWeight:700,letterSpacing:1.2,textTransform:'uppercase',color:C.warmL,fontFamily:ff}}>Other</div>}
+                  {standaloneLocs.map(loc=>(
+                    <button key={loc.id} onClick={()=>selectLoc(loc.id)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',width:'100%',padding:'13px 20px',border:'none',background:locId===loc.id?C.goldP:'transparent',cursor:'pointer',fontFamily:ff,borderBottom:`1px solid ${C.beige}`}}>
+                      <span style={{fontSize:14.5,fontWeight:locId===loc.id?600:400,color:locId===loc.id?C.warm:C.warmM}}>{loc.name}</span>
+                      {locId===loc.id&&<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.gold} strokeWidth="2.8"><polyline points="20 6 9 17 4 12"/></svg>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toolbar */}
       {countMode?(
@@ -671,8 +736,68 @@ function InventoryView({data,refresh,openModal,user}){
 
 function CatalogView({data,refresh,openModal,user}){
   const [search,setSearch]=useState('');
+  const [selectedItemId,setSelectedItemId]=useState(null);
   const filtered=data.items.filter(i=>i.name.toLowerCase().includes(search.toLowerCase())||(i.supplier&&i.supplier.toLowerCase().includes(search.toLowerCase())));
   const deleteItem=async id=>{try{await api.deleteItem(id);await refresh();}catch(e){alert(e.message);}};
+
+  if(selectedItemId){
+    const it=data.items.find(i=>i.id===selectedItemId);
+    if(!it){setSelectedItemId(null);return null;}
+    const {byId}=getLocationHierarchy(data.locations);
+    const stockRows=data.stock
+      .filter(s=>s.iid===selectedItemId)
+      .map(s=>{const loc=byId.get(s.lid);return loc?{...s,locName:loc.name,low:s.qty<=it.lowAt}:null;})
+      .filter(Boolean)
+      .sort((a,b)=>a.locName.localeCompare(b.locName));
+    const totalQty=stockRows.reduce((a,s)=>a+s.qty,0);
+    const showSupplier=user?.role==='admin'||!data.settings?.hiddenFields?.includes('supplier');
+    return(
+      <div style={{padding:'14px 16px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+          <button onClick={()=>setSelectedItemId(null)} style={{padding:'7px 12px',borderRadius:9,border:`1.5px solid ${C.beigeD}`,cursor:'pointer',background:C.beige,color:C.warmM,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>← Back</button>
+        </div>
+        <div style={{background:'#fff',borderRadius:14,padding:'16px',marginBottom:12,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:700,fontSize:17,fontFamily:ff,color:C.warm}}>{it.name}</div>
+              {it.desc&&<div style={{color:C.warmM,fontSize:13,marginTop:4,lineHeight:1.4,fontFamily:ff}}>{it.desc}</div>}
+              <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:10,alignItems:'center'}}>
+                <Tag color="gold">{it.uom}</Tag>
+                {it.supplier&&showSupplier&&<Tag color="gold">📦 {it.supplier}</Tag>}
+                <span style={{fontSize:11.5,color:C.warmL,fontFamily:ff}}>Low at: {it.lowAt}</span>
+                <span style={{fontSize:11.5,color:C.warmL,fontFamily:ff}}>·</span>
+                <span style={{fontSize:11.5,color:C.warmM,fontFamily:ff,fontWeight:500}}>{totalQty} total units</span>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:6,flexShrink:0}}>
+              <button onClick={()=>openModal({type:'edit-item',item:it})} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.beigeD}`,background:C.beige,color:C.warmM,cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.edit} Edit</button>
+            </div>
+          </div>
+        </div>
+        {stockRows.length===0
+          ?<div style={{textAlign:'center',padding:'40px 0',color:C.warmL,fontFamily:ff}}><div style={{fontWeight:600}}>Not stocked at any location</div></div>
+          :<div style={{background:'#fff',borderRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,.05)',overflow:'hidden'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr auto auto',borderBottom:`2px solid ${C.beige}`}}>
+              <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff}}>Location</div>
+              <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff,textAlign:'right'}}>Qty</div>
+              <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff,minWidth:60}}>UOM</div>
+            </div>
+            {stockRows.map((r,i)=>(
+              <div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr auto auto',borderBottom:i<stockRows.length-1?`1px solid ${C.beige}`:'none',background:r.low?C.redL:'#fff'}}>
+                <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:600,fontFamily:ff,color:r.low?C.red:C.warm,display:'flex',alignItems:'center',gap:8}}>
+                  {r.locName}
+                  {r.low&&<Tag color="red">low</Tag>}
+                </div>
+                <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:700,fontFamily:ff,color:r.low?C.red:C.warm,textAlign:'right'}}>{r.qty}</div>
+                <div style={{padding:'12px 16px',fontSize:13,fontFamily:ff,color:C.warmM,minWidth:60}}>{it.uom}</div>
+              </div>
+            ))}
+          </div>
+        }
+      </div>
+    );
+  }
+
   return(
     <div style={{padding:'14px 16px'}}>
       <div style={{display:'flex',gap:8,marginBottom:14,alignItems:'center'}}>
@@ -693,7 +818,9 @@ function CatalogView({data,refresh,openModal,user}){
         const totalQty=data.stock.filter(s=>s.iid===it.id).reduce((a,s)=>a+s.qty,0);
         const locCount=data.stock.filter(s=>s.iid===it.id).length;
         return(
-          <div key={it.id} style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+          <div key={it.id} onClick={()=>setSelectedItemId(it.id)} style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)',cursor:'pointer',transition:'box-shadow .15s'}}
+            onMouseEnter={e=>e.currentTarget.style.boxShadow='0 3px 12px rgba(0,0,0,.10)'}
+            onMouseLeave={e=>e.currentTarget.style.boxShadow='0 1px 6px rgba(0,0,0,.05)'}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:700,fontSize:15,fontFamily:ff}}>{it.name}</div>
@@ -705,7 +832,7 @@ function CatalogView({data,refresh,openModal,user}){
                 </div>
                 <div style={{fontSize:12,color:C.warmM,marginTop:6,fontFamily:ff}}>{totalQty} total units · {locCount} location{locCount!==1?'s':''}</div>
               </div>
-              <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}}>
+              <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openModal({type:'edit-item',item:it})} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.beigeD}`,background:C.beige,color:C.warmM,cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.edit} Edit</button>
                 <button onClick={()=>openModal({type:'add-item',prefill:{...it,name:''}})} title="Duplicate this item" style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.goldL}`,background:C.goldP,color:C.warm,cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>⎘ Duplicate</button>
                 <button onClick={()=>openModal({type:'confirm',title:'Delete Item',message:`Delete "${it.name}" from the catalog? All stock records for this item will also be removed.`,onConfirm:()=>deleteItem(it.id)})} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.redL}`,background:C.redL,color:C.red,cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.trash} Delete</button>
@@ -719,6 +846,7 @@ function CatalogView({data,refresh,openModal,user}){
 }
 
 function LocationsView({data,refresh,openModal,user}){
+  const [selectedLocId,setSelectedLocId]=useState(null);
   const deleteLoc=async id=>{try{await api.deleteLocation(id);await refresh();}catch(e){alert(e.message);}};
   const {childrenByParent,ordered}=getLocationHierarchy(data.locations);
 
@@ -728,6 +856,40 @@ function LocationsView({data,refresh,openModal,user}){
     const ls=getLocationStock(locId);
     return ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;}).length;
   };
+
+  if(selectedLocId){
+    const loc=data.locations.find(l=>l.id===selectedLocId);
+    const ls=getLocationStock(selectedLocId);
+    const rows=ls.map(s=>{const it=data.items.find(i=>i.id===s.iid);return it?{...s,name:it.name,uom:it.uom,low:s.qty<=it.lowAt}:null;}).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+    return(
+      <div style={{padding:'14px 16px'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+          <button onClick={()=>setSelectedLocId(null)} style={{padding:'7px 12px',borderRadius:9,border:`1.5px solid ${C.beigeD}`,cursor:'pointer',background:C.beige,color:C.warmM,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>← Back</button>
+          <div style={{fontWeight:700,fontSize:16,fontFamily:ff,color:C.warm}}>{loc?.name}</div>
+        </div>
+        {rows.length===0
+          ?<div style={{textAlign:'center',padding:'50px 0',color:C.warmL,fontFamily:ff}}><div style={{fontWeight:600}}>No items in this location</div></div>
+          :<div style={{background:'#fff',borderRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,.05)',overflow:'hidden'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr auto auto',borderBottom:`2px solid ${C.beige}`}}>
+              <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff}}>Catalog Item</div>
+              <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff,textAlign:'right'}}>Qty</div>
+              <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff,minWidth:60}}>UOM</div>
+            </div>
+            {rows.map((r,i)=>(
+              <div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr auto auto',borderBottom:i<rows.length-1?`1px solid ${C.beige}`:'none',background:r.low?C.redL:'#fff'}}>
+                <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:600,fontFamily:ff,color:r.low?C.red:C.warm,display:'flex',alignItems:'center',gap:8}}>
+                  {r.name}
+                  {r.low&&<Tag color="red">low</Tag>}
+                </div>
+                <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:700,fontFamily:ff,color:r.low?C.red:C.warm,textAlign:'right'}}>{r.qty}</div>
+                <div style={{padding:'12px 16px',fontSize:13,fontFamily:ff,color:C.warmM,minWidth:60}}>{r.uom}</div>
+              </div>
+            ))}
+          </div>
+        }
+      </div>
+    );
+  }
 
   return(
     <div style={{padding:'14px 16px'}}>
@@ -739,6 +901,7 @@ function LocationsView({data,refresh,openModal,user}){
         const isParent=kind==='parent';
         const isChild=kind==='child';
         const isStandalone=kind==='standalone';
+        const isClickable=isChild||isStandalone;
 
         const children=isParent?getChildren(loc.id):[];
         const childIds=children.map(c=>c.id);
@@ -746,37 +909,34 @@ function LocationsView({data,refresh,openModal,user}){
           ?data.stock.filter(s=>childIds.includes(s.lid))
           :getLocationStock(loc.id);
         const hasStock=ls.some(s=>s.qty>0);
-        const ll=isParent
-          ?ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;})
+        const lowCount=isParent
+          ?data.items.filter(item=>{const cs=data.stock.filter(s=>s.iid===item.id&&childIds.includes(s.lid));return cs.length>0&&cs.reduce((a,s)=>a+s.qty,0)<=item.lowAt;}).length
           :getLocationLowCount(loc.id);
 
         return(
-          <div key={loc.id} style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)',marginLeft:isChild?22:0,borderLeft:isChild?`3px solid ${C.beigeD}`:'none'}}>
+          <div key={loc.id} onClick={isClickable?()=>setSelectedLocId(loc.id):undefined} style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)',marginLeft:isChild?22:0,borderLeft:isChild?`3px solid ${C.beigeD}`:'none',cursor:isClickable?'pointer':'default',transition:'box-shadow .15s'}}
+            onMouseEnter={isClickable?e=>e.currentTarget.style.boxShadow='0 3px 12px rgba(0,0,0,.10)':undefined}
+            onMouseLeave={isClickable?e=>e.currentTarget.style.boxShadow='0 1px 6px rgba(0,0,0,.05)':undefined}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
-              <div>
+              <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:700,fontSize:15,fontFamily:ff,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                   {isChild&&<span style={{color:C.warmL}}>↳</span>}
                   {loc.name}
                   {isParent&&<Tag color="gold">Parent</Tag>}
                   {isChild&&<Tag color="amber">Child</Tag>}
                   {isStandalone&&<Tag color="green">Standalone</Tag>}
-                  {(isParent?ll.length:ll)>0&&<Tag color="red">{isParent?ll.length:ll} low</Tag>}
+                  {lowCount>0&&<Tag color="red">{lowCount} low</Tag>}
                 </div>
                 <div style={{fontSize:12.5,color:C.warmM,marginTop:4,fontFamily:ff}}>
                   {ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} total units
                   {isParent&&<span style={{marginLeft:6,color:C.warmL}}>(children aggregate)</span>}
                 </div>
               </div>
-              <div style={{display:'flex',gap:6,flexShrink:0}}>
+              <div style={{display:'flex',gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openModal({type:'add-location',editLocation:loc})} style={{padding:'7px 12px',borderRadius:9,border:`1.5px solid ${C.beigeD}`,cursor:'pointer',background:C.beige,color:C.warmM,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.edit} Edit</button>
                 <button disabled={hasStock||isParent} onClick={()=>openModal({type:'confirm',title:'Remove Location',message:`Remove "${loc.name}"? This cannot be undone.`,onConfirm:()=>deleteLoc(loc.id)})} title={isParent?'Cannot remove parent locations':'Remove location'} style={{padding:'7px 12px',borderRadius:9,border:'none',cursor:(hasStock||isParent)?'not-allowed':'pointer',background:(hasStock||isParent)?C.beige:C.redL,color:(hasStock||isParent)?C.beigeD:C.red,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,opacity:(hasStock||isParent)?.4:1,lineHeight:1}}>{Ic.trash} {(hasStock||isParent)?'In Use':'Remove'}</button>
               </div>
             </div>
-            {ls.length>0&&(
-              <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.beige}`,display:'flex',flexWrap:'wrap',gap:6}}>
-                {ls.map(s=>{const it=data.items.find(i=>i.id===s.iid);if(!it)return null;const low=s.qty<=it.lowAt;return <div key={s.id} style={{fontSize:12,padding:'3px 10px',borderRadius:8,background:low?C.redL:C.beige,color:low?C.red:C.warmM,fontFamily:ff,fontWeight:500}}>{it.name}: {s.qty} {it.uom}</div>;})}
-              </div>
-            )}
           </div>
         );
       })}
@@ -1189,17 +1349,23 @@ function SettingsView({user,data,refresh}){
             <div style={{marginBottom:16}}>
               <div style={{fontSize:11.5,fontWeight:600,color:C.warmM,marginBottom:4,letterSpacing:.4,textTransform:'uppercase',fontFamily:ff}}>Assigned Locations</div>
               <div style={{fontSize:11,color:C.warmL,marginBottom:8,fontFamily:ff}}>Leave all unchecked to allow all locations</div>
-              {data.locations.map(l=>{
-                const on=locationIds.includes(l.id);
-                return(
-                  <label key={l.id} onClick={()=>toggleLoc(l.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:10,background:on?C.black:C.beige,marginBottom:6,cursor:'pointer',border:`1.5px solid ${on?C.gold:C.beigeD}`,transition:'all .15s'}}>
-                    <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${on?C.gold:C.warmM}`,background:on?C.gold:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
-                      {on&&<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke={C.black} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </div>
-                    <span style={{fontFamily:ff,fontSize:14,color:on?C.gold:C.warm,fontWeight:on?600:400}}>{l.name}</span>
-                  </label>
-                );
-              })}
+              {(()=>{
+                const {parentIdsWithChildren}=getLocationHierarchy(data.locations);
+                const assignable=data.locations.filter(l=>!l.parentId).sort((a,b)=>a.name.localeCompare(b.name));
+                return assignable.map(l=>{
+                  const on=locationIds.includes(l.id);
+                  const isParent=parentIdsWithChildren.has(l.id);
+                  return(
+                    <label key={l.id} onClick={()=>toggleLoc(l.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:10,background:on?C.black:C.beige,marginBottom:6,cursor:'pointer',border:`1.5px solid ${on?C.gold:C.beigeD}`,transition:'all .15s'}}>
+                      <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${on?C.gold:C.warmM}`,background:on?C.gold:'transparent',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .15s'}}>
+                        {on&&<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke={C.black} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <span style={{fontFamily:ff,fontSize:14,color:on?C.gold:C.warm,fontWeight:on?600:400}}>{l.name}</span>
+                      {isParent&&<span style={{fontSize:10,color:on?C.gold:C.warmL,fontFamily:ff,marginLeft:'auto',letterSpacing:.3}}>all branches</span>}
+                    </label>
+                  );
+                });
+              })()}
             </div>
           )}
           <ErrBox msg={err}/>
@@ -1293,7 +1459,7 @@ export default function App(){
   const moreActive=['reorder','locations','settings'].includes(tab);
   const tabTitles={dashboard:'Dashboard',inventory:'Inventory',catalog:'Item Catalog',reorder:'Reorder List',locations:'Locations',settings:'Settings'};
   return(
-    <div style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,maxWidth:480,margin:'0 auto',paddingBottom:74,position:'relative'}}>
+    <div className="app-shell" style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,maxWidth:'var(--app-w)',margin:'0 auto',paddingBottom:74,position:'relative'}}>
       {/* Logo watermark */}
       <div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',width:320,maxWidth:'85vw',pointerEvents:'none',zIndex:0,opacity:.045}}>
         <img src={LOGO} alt="" style={{width:'100%',filter:'sepia(1) saturate(3) hue-rotate(5deg)'}}/>
@@ -1323,7 +1489,7 @@ export default function App(){
       </div>
       {showMore&&<div onClick={()=>setShowMore(false)} style={{position:'fixed',inset:0,zIndex:99}}/>}
       {showMore&&(
-        <div style={{position:'fixed',bottom:64,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:C.black,borderTop:'1px solid #2A2520',display:'flex',zIndex:100}}>
+        <div style={{position:'fixed',bottom:64,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'var(--app-w)',background:C.black,borderTop:'1px solid #2A2520',display:'flex',zIndex:100}}>
           {MORE_TABS.map(({key,label,icon})=>(
             <button key={key} onClick={()=>{setTab(key);setShowMore(false);}} style={{flex:1,padding:'12px 0',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
               <div style={{lineHeight:0,position:'relative'}}>
@@ -1335,7 +1501,7 @@ export default function App(){
           ))}
         </div>
       )}
-      <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:C.black,display:'flex',borderTop:'1px solid #1E1A15',paddingBottom:'env(safe-area-inset-bottom,0px)',zIndex:100}}>
+      <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'var(--app-w)',background:C.black,display:'flex',borderTop:'1px solid #1E1A15',paddingBottom:'env(safe-area-inset-bottom,0px)',zIndex:100}}>
         {TABS.map(({key,label,icon})=>(
           <button key={key} onClick={()=>{setTab(key);setShowMore(false);}} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
             <div style={{lineHeight:0,position:'relative'}}>
