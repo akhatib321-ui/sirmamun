@@ -401,13 +401,79 @@ function ConfirmModal({title,message,onConfirm,onClose}){
   );
 }
 
+// ─── HELPERS ──────────────────────────────────────────────
+function calcRate(log,itemId){
+  const now=Date.now();
+  const windowMs=30*86400000;
+  const events=(log||[]).filter(e=>e.iid===itemId&&e.type==='adj'&&e.delta<0&&(now-e.ts)<=windowMs);
+  if(!events.length)return 0;
+  const consumed=events.reduce((a,e)=>a+Math.abs(e.delta),0);
+  const spanDays=Math.max(1,(now-Math.min(...events.map(e=>e.ts)))/86400000);
+  return consumed/spanDays;
+}
+
+function stockInsight(qty,rate,leadTime){
+  if(!rate||rate<=0)return null;
+  const daysLeft=qty/rate;
+  const lt=leadTime||3;
+  if(daysLeft<=lt)return{urgency:'expedite',label:`~${Math.round(daysLeft)}d left`};
+  if(daysLeft<=lt*2)return{urgency:'soon',label:`~${Math.round(daysLeft)}d left`};
+  return null;
+}
+
+function getSnoozed(){
+  try{
+    const raw=localStorage.getItem('sm_snoozed');
+    const d=raw?JSON.parse(raw):{};
+    const now=Date.now();
+    Object.keys(d).forEach(k=>{if(d[k].expiresAt<now)delete d[k];});
+    return d;
+  }catch{return{};}
+}
+function snoozeItem(iid,leadTimeDays){
+  const snoozed=getSnoozed();
+  const days=leadTimeDays>0?leadTimeDays:3;
+  const expiresAt=Date.now()+days*86400000;
+  const arrivalDate=new Date(expiresAt).toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  snoozed[iid]={expiresAt,arrivalDate};
+  localStorage.setItem('sm_snoozed',JSON.stringify(snoozed));
+}
+function unsnoozeItem(iid){
+  const snoozed=getSnoozed();
+  delete snoozed[iid];
+  localStorage.setItem('sm_snoozed',JSON.stringify(snoozed));
+}
+
 // ─── VIEWS ────────────────────────────────────────────────
-function DashboardView({data,openModal,user}){
-  const lowGroups=getLowGroups(data);
-  const stockByItemAndLoc=new Map(data.stock.map(s=>[`${s.iid}:${s.lid}`,s]));
+function DashboardView({data,openModal,user,setTab}){
   const recentLog=(data.log||[]).slice(0,5);
+  const {childrenByParent,ordered:locOrdered}=getLocationHierarchy(data.locations);
+  const healthLocs=locOrdered.filter(({kind})=>kind==='parent'||kind==='standalone');
+
+  // Needs action today
+  const urgentItems=[];
+  data.items.forEach(it=>{
+    const rate=calcRate(data.log,it.id);
+    const itemStocks=data.stock.filter(s=>s.iid===it.id&&s.qty<=it.lowAt);
+    itemStocks.forEach(s=>{
+      const insight=stockInsight(s.qty,rate,it.leadTime);
+      if(insight&&(insight.urgency==='expedite'||insight.urgency==='soon')){
+        const lc=data.locations.find(l=>l.id===s.lid);
+        urgentItems.push({it,s,lc,insight,rate});
+      }
+    });
+  });
+  urgentItems.sort((a,b)=>({expedite:0,soon:1}[a.insight.urgency])-({expedite:0,soon:1}[b.insight.urgency]));
+
   return(
     <div style={{padding:'18px 16px'}}>
+
+      {/* Date */}
+      <div style={{fontSize:11,color:C.warmL,letterSpacing:'0.8px',textTransform:'uppercase',marginBottom:14,fontFamily:ff}}>
+        {new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric'})}
+      </div>
+
+      {/* Stat cards */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:20}}>
         {[{v:data.locations.length,l:'Locations'},{v:data.items.length,l:'Items'},{v:data.stock.reduce((a,s)=>a+s.qty,0),l:'Total Units'}].map(({v,l})=>(
           <div key={l} style={{background:C.black,borderRadius:14,padding:'16px 8px',textAlign:'center',boxShadow:'0 2px 14px rgba(0,0,0,.2)'}}>
@@ -416,55 +482,83 @@ function DashboardView({data,openModal,user}){
           </div>
         ))}
       </div>
-      {lowGroups.length>0?(
-        <>
-          <SecHead title={`⚠ Low Stock (${lowGroups.length})`}/>
-          {lowGroups.map((g,idx)=>{
-            const it=data.items.find(i=>i.id===g.iid);
-            const standaloneStock=g.locationIds.length===1?stockByItemAndLoc.get(`${g.iid}:${g.locationIds[0]}`):null;
-            const handleClick=()=>{
-              if(standaloneStock)openModal({type:'adjust',stockId:standaloneStock.id});
-              else openModal({type:'transfer',prefillItemId:g.iid,prefillFromId:''});
-            };
-            return(
-              <div key={`${g.iid}-${g.label}-${idx}`} onClick={handleClick} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',borderLeft:`3.5px solid ${C.red}`,cursor:'pointer',boxShadow:'0 1px 6px rgba(0,0,0,.06)'}}>
-                <div style={{minWidth:0}}>
-                  <div style={{fontWeight:600,fontSize:14,fontFamily:ff}}>{it?.name}</div>
-                  <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{g.label}</div>
-                </div>
-                <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                  <div style={{background:C.redL,color:C.red,padding:'4px 14px',borderRadius:22,fontWeight:700,fontSize:17,fontFamily:fs}}>{g.totalQty}<span style={{fontSize:11,fontWeight:400,fontFamily:ff}}> {it?.uom}</span></div>
-                  <div style={{lineHeight:0,color:C.warmL}}>{Ic.chevR}</div>
-                </div>
+
+      {/* Section A — Location health */}
+      <SecHead title="Location health"/>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:18}}>
+        {healthLocs.map(({loc,kind})=>{
+          const isParent=kind==='parent';
+          const childIds=isParent?(childrenByParent.get(loc.id)||[]).map(c=>c.id):[];
+          const locStock=isParent
+            ?data.stock.filter(s=>childIds.includes(s.lid))
+            :data.stock.filter(s=>s.lid===loc.id);
+          const totalItems=locStock.length;
+          const lowItems=locStock.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;}).length;
+          const healthPct=totalItems>0?Math.round(((totalItems-lowItems)/totalItems)*100):100;
+          const col=lowItems===0?C.green:lowItems<=2?C.amber:C.red;
+          return(
+            <div key={loc.id} style={{background:'#fff',borderRadius:12,padding:'12px',borderLeft:`3.5px solid ${col}`,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+              <div style={{fontSize:13,fontWeight:600,color:C.warm,marginBottom:6,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{loc.name}</div>
+              <div style={{background:C.beige,borderRadius:4,height:5,marginBottom:6,overflow:'hidden'}}>
+                <div style={{width:healthPct+'%',background:col,height:5,borderRadius:4}}/>
               </div>
-            );
-          })}
-        </>
-      ):(
-        <div style={{background:'#fff',borderRadius:14,padding:'22px',textAlign:'center',marginBottom:20,boxShadow:'0 1px 6px rgba(0,0,0,.06)'}}>
-          <div style={{fontSize:30,marginBottom:8}}>☕</div>
-          <div style={{color:C.green,fontWeight:600,fontFamily:ff,fontSize:15}}>All stocked up</div>
-          <div style={{color:C.warmL,fontSize:13,marginTop:4,fontFamily:ff}}>Every item is above its reorder threshold</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <span style={{fontSize:10.5,color:C.warmL}}>{healthPct===100?'All good':healthPct+'% healthy'}</span>
+                {lowItems>0&&<span style={{fontSize:10.5,color:col,fontWeight:600}}>{lowItems} low</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Section B — Needs action today */}
+      <SecHead title="Needs action today" action={<span style={{fontSize:12.5,fontWeight:600,color:C.gold,fontFamily:ff,cursor:'default'}}>Full list →</span>}/>
+      {urgentItems.length===0?(
+        <div style={{background:'#fff',borderRadius:12,padding:'18px',textAlign:'center',marginBottom:20,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+          <div style={{fontSize:24,marginBottom:6}}>☕</div>
+          <div style={{color:C.green,fontWeight:600,fontFamily:ff,fontSize:14}}>Nothing urgent today</div>
+          <div style={{color:C.warmL,fontSize:12,marginTop:4,fontFamily:ff}}>All items have enough runway.</div>
         </div>
-      )}
-      <div style={{marginTop:lowGroups.length?16:0}}>
+      ):urgentItems.map(({it,s,lc,insight,rate})=>{
+        const isExp=insight.urgency==='expedite';
+        const dotCol=isExp?C.red:C.amber;
+        const pillBg=isExp?C.redL:C.amberL;
+        return(
+          <div key={`${it.id}-${s.id}`} style={{background:'#fff',borderRadius:12,padding:'12px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+            <div style={{width:8,height:8,borderRadius:'50%',background:dotCol,flexShrink:0}}/>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:C.warm,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.name}</div>
+              <div style={{fontSize:11,color:C.warmL,marginTop:2,fontFamily:ff}}>{lc?.name}{rate>0?` · ${rate.toFixed(1)}/day`:''}</div>
+            </div>
+            <div style={{textAlign:'right',flexShrink:0}}>
+              <div style={{background:pillBg,color:dotCol,borderRadius:22,padding:'3px 10px',fontSize:11.5,fontWeight:600,fontFamily:ff,whiteSpace:'nowrap'}}>{isExp?'🚨 Expedite':'⚠️ Order soon'}</div>
+              <div style={{fontSize:10,color:C.warmL,marginTop:3,fontFamily:ff}}>{insight.label}</div>
+            </div>
+          </div>
+        );
+      })}
+
+      {(()=>{const sc=Object.keys(getSnoozed()).length;return sc>0?(<div style={{marginTop:8,fontSize:12,color:C.warmL,fontFamily:ff,cursor:'pointer'}} onClick={()=>setTab('reorder')}><i>{sc} item{sc!==1?'s':''} on order — tap to view</i></div>):null;})()}
+
+      {/* Locations Overview */}
+      <div style={{marginTop:20}}>
         <SecHead title="Locations Overview" action={user?.role==='admin'&&<Btn variant="secondary" size="sm" onClick={()=>openModal({type:'add-location'})}>{Ic.plus} Add</Btn>}/>
         {(()=>{
-          const {childrenByParent,parentIdsWithChildren,ordered:locOrdered}=getLocationHierarchy(data.locations);
-          return locOrdered
+          const {childrenByParent:cbp,ordered:lo}=getLocationHierarchy(data.locations);
+          return lo
             .filter(({kind})=>kind==='parent'||kind==='standalone')
             .map(({loc,kind})=>{
-              const isParent=kind==='parent';
-              const childIds=isParent?(childrenByParent.get(loc.id)||[]).map(c=>c.id):[];
-              const ls=isParent?data.stock.filter(s=>childIds.includes(s.lid)):data.stock.filter(s=>s.lid===loc.id);
-              const lowCt=isParent
-                ?data.items.filter(item=>{const cs=data.stock.filter(s=>s.iid===item.id&&childIds.includes(s.lid));return cs.length>0&&cs.reduce((a,s)=>a+s.qty,0)<=item.lowAt;}).length
+              const isP=kind==='parent';
+              const cids=isP?(cbp.get(loc.id)||[]).map(c=>c.id):[];
+              const ls=isP?data.stock.filter(s=>cids.includes(s.lid)):data.stock.filter(s=>s.lid===loc.id);
+              const lowCt=isP
+                ?data.items.filter(item=>{const cs=data.stock.filter(s=>s.iid===item.id&&cids.includes(s.lid));return cs.length>0&&cs.reduce((a,s)=>a+s.qty,0)<=item.lowAt;}).length
                 :ls.filter(s=>{const it=data.items.find(i=>i.id===s.iid);return it&&s.qty<=it.lowAt;}).length;
               return(
                 <div key={loc.id} style={{background:'#fff',borderRadius:14,padding:'13px 16px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
                   <div>
                     <div style={{fontWeight:600,fontSize:14,fontFamily:ff}}>{loc.name}</div>
-                    <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} units{isParent&&<span style={{marginLeft:4,color:C.warmL}}>(aggregate)</span>}</div>
+                    <div style={{color:C.warmM,fontSize:12,marginTop:2}}>{ls.length} items · {ls.reduce((a,s)=>a+s.qty,0)} units{isP&&<span style={{marginLeft:4,color:C.warmL}}>(aggregate)</span>}</div>
                   </div>
                   {lowCt>0&&<Tag color="red">{lowCt} low</Tag>}
                 </div>
@@ -472,6 +566,7 @@ function DashboardView({data,openModal,user}){
             });
         })()}
       </div>
+
       {/* Recent Activity */}
       <div style={{marginTop:20}}>
         <SecHead title="Recent Activity" action={recentLog.length>0&&<button onClick={()=>openModal({type:'log'})} style={{fontSize:12.5,fontWeight:600,color:C.gold,background:'none',border:'none',cursor:'pointer',fontFamily:ff,padding:0}}>View all →</button>}/>
@@ -1169,21 +1264,21 @@ function ConsumeModal({stockId,locId,data,refresh,onClose,user}){
 
 // ─── REORDER VIEW ─────────────────────────────────────────
 function ReorderView({data,openModal,user}){
+  const [snoozed,setSnoozed]=useState(()=>getSnoozed());
   const lowGroups=getLowGroups(data);
   const stockByItemAndLoc=new Map(data.stock.map(s=>[`${s.iid}:${s.lid}`,s]));
   const grouped=data.items
-    .map(it=>{
-      const lows=lowGroups.filter(g=>g.iid===it.id);
-      return lows.length?{it,lows}:null;
-    })
+    .map(it=>{const lows=lowGroups.filter(g=>g.iid===it.id);return lows.length?{it,lows}:null;})
     .filter(Boolean);
-
   grouped.sort((a,b)=>b.lows.length-a.lows.length||a.it.name.localeCompare(b.it.name));
 
-  const totalShort=grouped.reduce(
-    (a,g)=>a+g.lows.reduce((b,s)=>b+Math.max(0,g.it.lowAt-s.totalQty+1),0),
-    0,
-  );
+  const activeGroups=grouped.filter(g=>!snoozed[g.it.id]);
+  const snoozedGroups=grouped.filter(g=>!!snoozed[g.it.id]);
+
+  const handleSnooze=(iid,leadTime)=>{snoozeItem(iid,leadTime);setSnoozed(getSnoozed());};
+  const handleUnsnooze=iid=>{unsnoozeItem(iid);setSnoozed(getSnoozed());};
+
+  const totalShort=activeGroups.reduce((a,g)=>a+g.lows.reduce((b,s)=>b+Math.max(0,g.it.lowAt-s.totalQty+1),0),0);
 
   if(grouped.length===0)return(
     <div style={{padding:'60px 24px',textAlign:'center',color:C.warmL,fontFamily:ff}}>
@@ -1202,11 +1297,11 @@ function ReorderView({data,openModal,user}){
         </div>
         <div>
           <div style={{fontFamily:fs,fontSize:18,color:C.gold,fontWeight:700,lineHeight:1}}>{grouped.length} item{grouped.length!==1?'s':''} need reordering</div>
-          <div style={{fontSize:12,color:C.warmL,marginTop:3,fontFamily:ff}}>{lowGroups.length} location group{lowGroups.length!==1?'s':''} affected · ~{totalShort} units short</div>
+          <div style={{fontSize:12,color:C.warmL,marginTop:3,fontFamily:ff}}>{activeGroups.length} item{activeGroups.length!==1?'s':''} need reordering{snoozedGroups.length>0?` · ${snoozedGroups.length} on order`:''}</div>
         </div>
       </div>
 
-      {grouped.map(({it,lows})=>{
+      {activeGroups.map(({it,lows})=>{
         const totalShortItem=lows.reduce((a,s)=>a+Math.max(0,it.lowAt-s.totalQty+1),0);
         return(
           <div key={it.id} style={{background:'#fff',borderRadius:14,marginBottom:12,overflow:'hidden',boxShadow:'0 1px 8px rgba(0,0,0,.07)',borderLeft:`4px solid ${C.red}`}}>
@@ -1245,26 +1340,49 @@ function ReorderView({data,openModal,user}){
                 </div>
               );
             })}
-            {/* Item footer: transfer from best-stocked */}
+            {/* Transfer suggestion */}
             {(()=>{
               const lowLocIds=new Set(lows.flatMap(l=>l.locationIds));
-              const best=data.stock
-                .filter(s=>s.iid===it.id&&!lowLocIds.has(s.lid)&&s.qty>it.lowAt)
-                .sort((a,b)=>b.qty-a.qty)[0];
+              const best=data.stock.filter(s=>s.iid===it.id&&!lowLocIds.has(s.lid)&&s.qty>it.lowAt).sort((a,b)=>b.qty-a.qty)[0];
               if(!best)return null;
               const bestLoc=data.locations.find(l=>l.id===best.lid);
               return(
                 <div style={{padding:'8px 16px',background:C.greenL,display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
-                  <div style={{fontSize:12,color:C.green,fontFamily:ff,fontWeight:500}}>
-                    💡 {bestLoc?.name} has {best.qty} — consider transferring
-                  </div>
+                  <div style={{fontSize:12,color:C.green,fontFamily:ff,fontWeight:500}}>💡 {bestLoc?.name} has {best.qty} — consider transferring</div>
                   <button onClick={()=>openModal({type:'transfer',prefillItemId:it.id,prefillFromId:best.lid})} style={{padding:'5px 10px',borderRadius:7,border:'none',background:C.green,color:'#fff',cursor:'pointer',fontFamily:ff,fontSize:11.5,fontWeight:600,flexShrink:0,lineHeight:1}}>Transfer →</button>
                 </div>
               );
             })()}
+            {/* Mark as ordered */}
+            <div style={{background:C.cream,borderTop:`1px solid ${C.beige}`,padding:'8px 14px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontSize:11,color:C.warmL,fontFamily:ff}}>Placed an order?</span>
+              <button onClick={()=>handleSnooze(it.id,it.leadTime)} style={{background:C.black,color:C.gold,border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:ff,display:'flex',alignItems:'center',gap:5,lineHeight:1}}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                Mark as ordered
+              </button>
+            </div>
           </div>
         );
       })}
+
+      {/* On order section */}
+      {snoozedGroups.length>0&&(
+        <>
+          <SecHead title="On order"/>
+          {snoozedGroups.map(({it})=>(
+            <div key={it.id} style={{background:'#fff',borderRadius:12,overflow:'hidden',borderLeft:`4px solid ${C.beigeD}`,marginBottom:8,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+              <div style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px'}}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.warmL} strokeWidth="1.8"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:C.warm,fontFamily:ff}}>{it.name}</div>
+                  <div style={{fontSize:11,color:C.warmL,marginTop:2,fontFamily:ff}}>Ordered · arrives ~{snoozed[it.id]?.arrivalDate}</div>
+                </div>
+                <button onClick={()=>handleUnsnooze(it.id)} style={{fontSize:11,color:C.warmL,background:'none',border:'none',cursor:'pointer',fontFamily:ff,padding:'4px 0',flexShrink:0}}>Undo</button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -1410,11 +1528,42 @@ function SettingsView({user,data,refresh}){
   );
 }
 
+// ─── MORE SHEET ───────────────────────────────────────────
+function MoreSheet({user,setTab,onClose,data}){
+  const low=getLowGroups(data);
+  const go=key=>{setTab(key);onClose();};
+  const moreSettingsIcon=<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
+  const Row=({bg,col,icon,label,sub,badge,onClick})=>(
+    <div onClick={onClick} style={{display:'flex',alignItems:'center',gap:14,padding:'14px 18px',borderBottom:`1px solid ${C.beige}`,cursor:'pointer'}}>
+      <div style={{width:38,height:38,borderRadius:10,background:bg,display:'flex',alignItems:'center',justifyContent:'center',color:col,flexShrink:0,lineHeight:0}}>{icon}</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:C.warm,fontFamily:ff}}>{label}</div>
+        <div style={{fontSize:11,color:C.warmL,marginTop:2,fontFamily:ff}}>{sub}</div>
+      </div>
+      {badge&&<div style={{background:C.red,color:'#fff',borderRadius:22,padding:'2px 8px',fontSize:11.5,fontWeight:700,fontFamily:ff,flexShrink:0}}>{badge}</div>}
+      <span style={{lineHeight:0,color:C.warmL,flexShrink:0}}>{Ic.chevR}</span>
+    </div>
+  );
+  return(
+    <Sheet title="More" onClose={onClose}>
+      <div style={{margin:'-18px -20px 0'}}>
+        <Row bg={C.redL} col={C.red} icon={Ic.reorder} label="Reorder" sub={`${low.length} item${low.length!==1?'s':''} need attention`} badge={low.length>0?low.length:null} onClick={()=>go('reorder')}/>
+        <Row bg={C.beige} col={C.warmM} icon={Ic.loc} label="Locations" sub={`${data.locations.length} location${data.locations.length!==1?'s':''}`} onClick={()=>go('locations')}/>
+        {user?.role==='admin'&&(
+          <>
+            <div style={{padding:'12px 18px 4px',fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:'uppercase',color:C.warmL,fontFamily:ff}}>Admin only</div>
+            <Row bg={C.black} col={C.gold} icon={moreSettingsIcon} label="Settings" sub="Staff PINs · roles" onClick={()=>go('settings')}/>
+          </>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 // ─── MAIN APP ─────────────────────────────────────────────
 export default function App(){
   const [data,setData]=useState(null);
   const [tab,setTab]=useState('dashboard');
-  const [showMore,setShowMore]=useState(false);
   const [modal,setModal]=useState(null);
   const [err,setErr]=useState(null);
   const [user,setUser]=useState(()=>{try{const u=sessionStorage.getItem('sm_user');return u?JSON.parse(u):null;}catch{return null;}});
@@ -1453,10 +1602,8 @@ export default function App(){
   const hasLocRestriction=user?.role!=='admin'&&user?.locationIds?.length>0;
   const viewData=hasLocRestriction?{...data,locations:data.locations.filter(l=>user.locationIds.includes(l.id)),stock:data.stock.filter(s=>user.locationIds.includes(s.lid))}:data;
   const low=getLowGroups(viewData);
-  const settingsIcon=<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
-  const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
-  const MORE_TABS=[{key:'reorder',label:'Reorder',icon:Ic.reorder},{key:'locations',label:'Locations',icon:Ic.loc},...(user?.role==='admin'?[{key:'settings',label:'Settings',icon:settingsIcon}]:[])];
   const moreActive=['reorder','locations','settings'].includes(tab);
+  const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
   const tabTitles={dashboard:'Dashboard',inventory:'Inventory',catalog:'Item Catalog',reorder:'Reorder List',locations:'Locations',settings:'Settings'};
   return(
     <div className="app-shell" style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,maxWidth:'var(--app-w)',margin:'0 auto',paddingBottom:74,position:'relative'}}>
@@ -1480,30 +1627,16 @@ export default function App(){
         </div>
       </header>
       <div style={{position:'relative',zIndex:1}}>
-      {tab==='dashboard'&&<DashboardView data={viewData} openModal={openModal} user={user}/>}
+      {tab==='dashboard'&&<DashboardView data={viewData} openModal={openModal} user={user} setTab={setTab}/>}
       {tab==='inventory'&&<InventoryView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
       {tab==='catalog'&&<CatalogView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
       {tab==='reorder'&&<ReorderView data={viewData} openModal={openModal} user={user}/>}
       {tab==='locations'&&<LocationsView data={viewData} refresh={refresh} openModal={openModal} user={user}/>}
       {tab==='settings'&&<SettingsView user={user} data={data} refresh={refresh}/>}
       </div>
-      {showMore&&<div onClick={()=>setShowMore(false)} style={{position:'fixed',inset:0,zIndex:99}}/>}
-      {showMore&&(
-        <div style={{position:'fixed',bottom:64,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'var(--app-w)',background:C.black,borderTop:'1px solid #2A2520',display:'flex',zIndex:100}}>
-          {MORE_TABS.map(({key,label,icon})=>(
-            <button key={key} onClick={()=>{setTab(key);setShowMore(false);}} style={{flex:1,padding:'12px 0',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
-              <div style={{lineHeight:0,position:'relative'}}>
-                {icon}
-                {key==='reorder'&&low.length>0&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
-              </div>
-              <span style={{fontSize:9.5,fontWeight:tab===key?600:400,letterSpacing:.3}}>{label}</span>
-            </button>
-          ))}
-        </div>
-      )}
       <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'var(--app-w)',background:C.black,display:'flex',borderTop:'1px solid #1E1A15',paddingBottom:'env(safe-area-inset-bottom,0px)',zIndex:100}}>
         {TABS.map(({key,label,icon})=>(
-          <button key={key} onClick={()=>{setTab(key);setShowMore(false);}} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
+          <button key={key} onClick={()=>setTab(key)} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
             <div style={{lineHeight:0,position:'relative'}}>
               {icon}
               {key==='dashboard'&&low.length>0&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
@@ -1511,12 +1644,12 @@ export default function App(){
             <span style={{fontSize:9.5,fontWeight:tab===key?600:400,letterSpacing:.3}}>{label}</span>
           </button>
         ))}
-        <button onClick={()=>setShowMore(v=>!v)} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:(moreActive||showMore)?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
+        <button onClick={()=>openModal({type:'more'})} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:moreActive?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
           <div style={{lineHeight:0,position:'relative'}}>
             <svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
             {low.length>0&&!moreActive&&<div style={{position:'absolute',top:-2,right:-4,width:7,height:7,background:C.red,borderRadius:'50%',border:'1.5px solid '+C.black}}/>}
           </div>
-          <span style={{fontSize:9.5,fontWeight:(moreActive||showMore)?600:400,letterSpacing:.3}}>More</span>
+          <span style={{fontSize:9.5,fontWeight:moreActive?600:400,letterSpacing:.3}}>More</span>
         </button>
       </nav>
       {modal?.type==='adjust'&&<AdjustModal stockId={modal.stockId} data={data} refresh={refresh} onClose={closeModal} user={user}/>}
@@ -1527,8 +1660,9 @@ export default function App(){
       {modal?.type==='add-location'&&<AddEditLocationModal editLocation={modal.editLocation??null} data={data} refresh={refresh} onClose={closeModal}/>} 
       {modal?.type==='add-stock'&&<AddStockModal locationId={modal.locationId} data={data} refresh={refresh} onClose={closeModal}/>} 
       {modal?.type==='import'&&<Sheet title="Upload from CSV" onClose={closeModal}><ImportView data={data} refresh={refresh}/></Sheet>} 
-      {modal?.type==='confirm'&&<ConfirmModal title={modal.title} message={modal.message} onConfirm={modal.onConfirm} onClose={closeModal}/>} 
-      {modal?.type==='log'&&<LogSheet data={data} onClose={closeModal}/>} 
+      {modal?.type==='confirm'&&<ConfirmModal title={modal.title} message={modal.message} onConfirm={modal.onConfirm} onClose={closeModal}/>}
+      {modal?.type==='log'&&<LogSheet data={data} onClose={closeModal}/>}
+      {modal?.type==='more'&&<MoreSheet user={user} setTab={setTab} onClose={closeModal} data={viewData}/>}
     </div>
   );
 }
