@@ -1,10 +1,13 @@
-import { Controller, Post, Put, Param, Body } from '@nestjs/common';
+import { Body, Controller, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Roles } from '../core/auth/decorators/roles.decorator';
+import { LocationGuard } from '../core/auth/guards/location.guard';
 import { StockService } from './stock.service';
 
 @Controller()
 export class StockController {
   constructor(private svc: StockService) {}
 
+  @UseGuards(LocationGuard)
   @Post('stock')
   addStock(@Body() body: { iid: string; lid: string; qty: number }) {
     return this.svc.addStock(body.iid, body.lid, body.qty);
@@ -25,11 +28,13 @@ export class StockController {
     return this.svc.consume(body.stockId, body.amount, { userId: body.userId, userName: body.userName });
   }
 
+  @UseGuards(LocationGuard)
   @Post('transfer')
   transfer(@Body() body: { iid: string; fromLid: string; toLid: string; qty: number; userId?: string; userName?: string }) {
     return this.svc.transfer(body.iid, body.fromLid, body.toLid, body.qty, { userId: body.userId, userName: body.userName });
   }
 
+  @Roles('admin')
   @Post('import')
   bulkImport(@Body() body: { rows: any[] }) {
     return this.svc.bulkImport(body.rows);

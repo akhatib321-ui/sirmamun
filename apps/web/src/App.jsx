@@ -1566,12 +1566,27 @@ export default function App(){
   const [tab,setTab]=useState('dashboard');
   const [modal,setModal]=useState(null);
   const [err,setErr]=useState(null);
-  const [user,setUser]=useState(()=>{try{const u=sessionStorage.getItem('sm_user');return u?JSON.parse(u):null;}catch{return null;}});
-  const logout=()=>{sessionStorage.removeItem('sm_user');setUser(null);};
+  const [user,setUser]=useState(()=>{
+    try{
+      const u = localStorage.getItem('user') || sessionStorage.getItem('sm_user');
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  });
+  const logout=()=>{
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    sessionStorage.removeItem('sm_user');
+    setUser(null);
+  };
 
   const refresh=useCallback(async()=>{
     try{const d=await api.fetchAll();setData(d);}
-    catch(e){setErr('Could not reach server. Check your connection.');}
+    catch(e){
+      if(e?.status===401){logout();return;}
+      setErr('Could not reach server. Check your connection.');
+    }
   },[]);
 
   useEffect(()=>{
@@ -1587,7 +1602,7 @@ export default function App(){
 
   const openModal=useCallback(m=>setModal(m),[]);
   const closeModal=useCallback(()=>setModal(null),[]);
-  if(!user)return <LoginScreen onLogin={u=>{sessionStorage.setItem('sm_user',JSON.stringify(u));setUser(u);}}/>;
+  if(!user)return <LoginScreen onLogin={u=>{localStorage.setItem('user',JSON.stringify(u));sessionStorage.setItem('sm_user',JSON.stringify(u));setUser(u);}}/>;
   if(!data)return(
     <div style={{background:C.black,height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:0}}>
       <img src={LOGO} alt="Baladi" style={{width:140,opacity:.95,marginBottom:4}}/>

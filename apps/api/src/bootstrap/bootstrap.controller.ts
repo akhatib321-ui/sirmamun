@@ -5,6 +5,7 @@ import { Location } from '../entities/location.entity';
 import { Item } from '../entities/item.entity';
 import { Stock } from '../entities/stock.entity';
 import { Log } from '../entities/log.entity';
+import { Public } from '../core/auth/decorators/public.decorator';
 import { SettingsService } from '../settings/settings.service';
 
 @Controller('bootstrap')
@@ -16,6 +17,16 @@ export class BootstrapController {
     @InjectRepository(Log) private log: Repository<Log>,
     private settingsSvc: SettingsService,
   ) {}
+
+  @Public()
+  @Get('health')
+  health() {
+    return {
+      ok: true,
+      service: 'api',
+      ts: new Date().toISOString(),
+    };
+  }
 
   @Get()
   async bootstrap() {

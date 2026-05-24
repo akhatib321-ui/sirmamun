@@ -14,6 +14,12 @@ export class User {
   @Column({ default: 'staff' }) // 'admin' | 'staff'
   role: string;
 
+  @Column({ type: 'int', default: 1 })
+  organizationId: number;
+
+  @Column({ default: true })
+  active: boolean;
+
   @Column({ type: 'simple-json', default: '[]' })
   locationIds: string[];
 
