@@ -2,9 +2,8 @@ services:
   - type: web
     name: sirmamun-api
     runtime: node
-    rootDir: apps/api
-    buildCommand: npm install && npx prisma migrate deploy && NODE_OPTIONS=--max-old-space-size=460 npm run build
-    startCommand: node dist/main.js
+    buildCommand: npm install && cd apps/api && npx prisma migrate deploy && NODE_OPTIONS=--max-old-space-size=460 npm run build
+    startCommand: node apps/api/dist/main.js
     envVars:
       - key: PORT
         value: 10000
