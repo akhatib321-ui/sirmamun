@@ -2,7 +2,7 @@
   "name": "@sirmamun/api",
   "version": "1.0.0",
   "scripts": {
-    "build": "prisma generate && nest build",
+    "build": "prisma generate && nest build --transpile-only",
     "postinstall": "prisma generate",
     "start:dev": "nest start --watch",
     "prestart:prod": "npm run build",
