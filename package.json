@@ -5,5 +5,9 @@
   "scripts": {
     "api": "npm run start:dev --workspace=apps/api",
     "web": "npm run dev --workspace=apps/web"
+  },
+  "devDependencies": {
+    "@swc/cli": "^0.6.0",
+    "@swc/core": "^1.10.0"
   }
 }
