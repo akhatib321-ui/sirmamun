@@ -77,3 +77,308 @@ model User {
 
   @@map("users")
 }
+// prisma/schema.prisma — MODULE 2 ADDITIONS
+// ─────────────────────────────────────────────────────────────────────────────
+// Append everything below to the end of your existing schema.prisma.
+// Then run: npx prisma migrate dev --name add_catalog_and_inventory_module
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum SupplierType {
+  OPERATIONAL      // Amazon Fresh — daily/next-day
+  DOMESTIC_BULK    // US syrups/specialty — 1-2 weeks
+  OVERSEAS_BULK    // Wowbo/Dragon Pack — 4-6 weeks
+}
+
+enum OrderStatus {
+  PENDING
+  IN_TRANSIT
+  RECEIVED
+  PARTIAL
+  CANCELLED
+}
+
+enum SuggestionStatus {
+  PENDING
+  APPROVED
+  ORDERED
+  DISMISSED
+}
+
+enum TriggerType {
+  SALES_IMPORT
+  ORDER_RECEIVED
+  SCHEDULED
+  MANUAL
+}
+
+enum Urgency {
+  ORDER_TODAY
+  ORDER_THIS_WEEK
+  PLAN_AHEAD
+}
+
+enum SalesSource {
+  CSV
+  TOAST_API
+}
+
+// ── Catalog ───────────────────────────────────────────────────────────────────
+
+model Ingredient {
+  id             String   @id @default(uuid())
+  name           String
+  unit           String   // buy unit: oz, ml, g, lb, pump, etc.
+  notes          String?
+  organizationId Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  costs             IngredientCost[]
+  recipeIngredients RecipeIngredient[]
+  supplierLinks     IngredientSupplier[]
+  snapshotItems     InventorySnapshotItem[]
+  orderItems        SupplierOrderItem[]
+  suggestionItems   ReorderSuggestionItem[]
+
+  @@map("ingredients")
+}
+
+model IngredientCost {
+  id           String   @id @default(uuid())
+  ingredientId String
+  locationId   String
+  pkgSize      Float    // size of one package in buy unit
+  qtyBought    Int      @default(1)
+  totalPaid    Float
+  unitCost     Float    // computed: totalPaid / (pkgSize * qtyBought)
+  supplierId   String?
+  purchaseDate DateTime
+  invoiceRef   String?
+  createdAt    DateTime @default(now())
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  supplier   Supplier?  @relation(fields: [supplierId], references: [id])
+
+  @@map("ingredient_costs")
+}
+
+model Recipe {
+  id             String   @id @default(uuid())
+  name           String
+  category       String
+  sellPrice      Float    @default(0)
+  locationId     String
+  organizationId Int      @default(1)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  ingredients      RecipeIngredient[]
+  salesReportItems SalesReportItem[]
+
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id           String @id @default(uuid())
+  recipeId     String
+  ingredientId String
+  quantity     Float
+  useUnit      String // unit used in recipe — may differ from ingredient buy unit
+
+  recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id])
+
+  @@unique([recipeId, ingredientId])
+  @@map("recipe_ingredients")
+}
+
+// ── Suppliers ─────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id             String       @id @default(uuid())
+  name           String
+  type           SupplierType
+  leadTimeDays   Int
+  safetyFactor   Float        @default(1.3)
+  notes          String?
+  organizationId Int          @default(1)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  ingredientLinks IngredientSupplier[]
+  orders          SupplierOrder[]
+  costs           IngredientCost[]
+  suggestionItems ReorderSuggestionItem[]
+
+  @@map("suppliers")
+}
+
+model IngredientSupplier {
+  id           String  @id @default(uuid())
+  ingredientId String
+  supplierId   String
+  preferred    Boolean @default(false)
+
+  ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  supplier   Supplier   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([ingredientId, supplierId])
+  @@map("ingredient_suppliers")
+}
+
+// ── Sales Ingestion ───────────────────────────────────────────────────────────
+
+model SalesReport {
+  id             String      @id @default(uuid())
+  locationId     String
+  organizationId Int         @default(1)
+  reportDate     DateTime
+  periodStart    DateTime
+  periodEnd      DateTime
+  source         SalesSource @default(CSV)
+  importedAt     DateTime    @default(now())
+  importedBy     String      // user id
+  rawJson        Json        // original payload preserved for audit
+
+  items SalesReportItem[]
+
+  @@map("sales_reports")
+}
+
+model SalesReportItem {
+  id              String  @id @default(uuid())
+  salesReportId   String
+  itemName        String  // exact string from Toast
+  menuGroup       String?
+  qtySold         Int
+  grossSales      Float
+  netSales        Float
+  discountAmount  Float   @default(0)
+  matchedRecipeId String?
+  matchConfidence Float?  // 0.0–1.0; null = unmatched
+
+  salesReport   SalesReport @relation(fields: [salesReportId], references: [id], onDelete: Cascade)
+  matchedRecipe Recipe?     @relation(fields: [matchedRecipeId], references: [id])
+
+  @@map("sales_report_items")
+}
+
+// Learned mapping: Toast item name → recipe
+// Built over time; makes future imports instant
+model SalesItemAlias {
+  id             String   @id @default(uuid())
+  toastName      String   // normalized exact string from Toast
+  recipeId       String
+  organizationId Int      @default(1)
+  createdAt      DateTime @default(now())
+
+  @@unique([toastName, organizationId])
+  @@map("sales_item_aliases")
+}
+
+// ── Inventory Snapshots ───────────────────────────────────────────────────────
+
+model InventorySnapshot {
+  id             String   @id @default(uuid())
+  locationId     String
+  organizationId Int      @default(1)
+  snappedAt      DateTime @default(now())
+  snappedBy      String   // user id
+  notes          String?
+
+  items InventorySnapshotItem[]
+
+  @@map("inventory_snapshots")
+}
+
+model InventorySnapshotItem {
+  id           String @id @default(uuid())
+  snapshotId   String
+  ingredientId String
+  quantity     Float
+  unit         String
+
+  snapshot   InventorySnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  ingredient Ingredient        @relation(fields: [ingredientId], references: [id])
+
+  @@map("inventory_snapshot_items")
+}
+
+// ── Supplier Orders ───────────────────────────────────────────────────────────
+
+model SupplierOrder {
+  id             String      @id @default(uuid())
+  supplierId     String
+  locationId     String
+  organizationId Int         @default(1)
+  orderedAt      DateTime    @default(now())
+  expectedAt     DateTime?
+  receivedAt     DateTime?
+  status         OrderStatus @default(PENDING)
+  totalCost      Float?
+  invoiceRef     String?
+  createdBy      String      // user id
+  notes          String?
+
+  supplier Supplier           @relation(fields: [supplierId], references: [id])
+  items    SupplierOrderItem[]
+
+  @@map("supplier_orders")
+}
+
+model SupplierOrderItem {
+  id           String @id @default(uuid())
+  orderId      String
+  ingredientId String
+  qtyOrdered   Float
+  qtyReceived  Float? // null until received
+  unit         String
+  unitCost     Float
+
+  order      SupplierOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ingredient Ingredient    @relation(fields: [ingredientId], references: [id])
+
+  @@map("supplier_order_items")
+}
+
+// ── Reorder Suggestions ───────────────────────────────────────────────────────
+
+model ReorderSuggestion {
+  id              String           @id @default(uuid())
+  locationId      String
+  organizationId  Int              @default(1)
+  generatedAt     DateTime         @default(now())
+  generatedBy     String           // 'system' | userId
+  status          SuggestionStatus @default(PENDING)
+  triggerType     TriggerType
+  triggerSourceId String?          // salesReportId or supplierOrderId
+  windowDays      Int              @default(7)
+  notes           String?
+
+  items ReorderSuggestionItem[]
+
+  @@map("reorder_suggestions")
+}
+
+model ReorderSuggestionItem {
+  id                   String  @id @default(uuid())
+  suggestionId         String
+  ingredientId         String
+  supplierId           String?
+  urgency              Urgency
+  suggestedQty         Float
+  estimatedCost        Float?
+  currentStockEstimate Float?
+  parLevelEstimate     Float?
+  daysUntilStockout    Float?
+  reason               String  // human-readable: shows the full calculation trail
+
+  suggestion ReorderSuggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+  ingredient Ingredient        @relation(fields: [ingredientId], references: [id])
+  supplier   Supplier?         @relation(fields: [supplierId], references: [id])
+
+  @@map("reorder_suggestion_items")
+}

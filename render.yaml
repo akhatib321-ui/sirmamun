@@ -3,7 +3,7 @@ services:
     name: sirmamun-api
     runtime: node
     rootDir: apps/api
-    buildCommand: npm install && npx prisma generate && npm run build
+    buildCommand: npm install && npx prisma migrate deploy && npx prisma generate && npm run build
     startCommand: npm run start:prod
     envVars:
       - key: PORT
@@ -36,8 +36,19 @@ services:
         fromDatabase:
           name: sirmamun-db
           property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: sirmamun-redis
+          property: connectionString
 
 databases:
   - name: sirmamun-db
     databaseName: sirmamun
     plan: free
+
+services:
+  - type: redis
+    name: sirmamun-redis
+    plan: free
+    maxmemoryPolicy: noeviction
