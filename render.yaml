@@ -4,7 +4,7 @@ services:
     runtime: node
     rootDir: apps/api
     buildCommand: npm install && npx prisma migrate deploy && NODE_OPTIONS=--max-old-space-size=460 npm run build
-    startCommand: npm run start:prod
+    startCommand: node dist/main.js
     envVars:
       - key: PORT
         value: 10000
