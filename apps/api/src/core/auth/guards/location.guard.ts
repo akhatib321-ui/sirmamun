@@ -1,43 +1,31 @@
-import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
+// CORRECTED — replaces the version from the auth integration
+// Changes from original:
+//   locationIds: number[] → string[] (UUIDs, not integers)
+
+import {
+  Injectable,
+  CanActivate,
+  ExecutionContext,
+  ForbiddenException,
+} from '@nestjs/common';
 import { JwtPayload } from '../types/jwt-payload.interface';
 
 @Injectable()
 export class LocationGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const user = request.user as JwtPayload | undefined;
+    const user = request.user as JwtPayload;
 
-    if (!user) {
-      return false;
-    }
+    if (user.role === 'admin') return true;
+    if (!user.locationIds || user.locationIds.length === 0) return true;
 
-    if (user.role === 'admin') {
-      return true;
-    }
+    const locationId: string | undefined =
+      request.params?.locationId ?? request.query?.locationId;
 
-    const requestedLocationIds: string[] = [
-      request.params?.locationId,
-      request.params?.lid,
-      request.body?.locationId,
-      request.body?.lid,
-      request.body?.fromLid,
-      request.body?.toLid,
-      request.query?.locationId,
-    ]
-      .filter((value) => value !== undefined && value !== null)
-      .map((value) => String(value));
+    if (!locationId) return true;
 
-    if (requestedLocationIds.length === 0) {
-      return true;
-    }
-
-    if (!Array.isArray(user.locationIds)) {
-      throw new ForbiddenException('Access denied for this location');
-    }
-
-    const hasAccess = requestedLocationIds.every((locationId) => user.locationIds.includes(locationId));
-    if (!hasAccess) {
-      throw new ForbiddenException('Access denied for this location');
+    if (!user.locationIds.includes(locationId)) {
+      throw new ForbiddenException('You do not have access to this location');
     }
 
     return true;

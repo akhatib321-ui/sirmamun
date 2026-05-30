@@ -1,186 +1,225 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+// CORRECTED — replaces the version from the auth integration
+// Changes from original:
+//   - Uses PrismaService instead of TypeORM UserRepository
+//   - sub: string (UUID) instead of sub: number
+//   - Reads user.locationIds (not assignedLocations) and parses JSON string
+//   - Handles the TEXT-stored locationIds from TypeORM simple-json
+
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { Repository } from 'typeorm';
-import { User } from '../../entities/user.entity';
-import { LoginDto } from './dto/login.dto';
+import { PrismaService } from '../prisma/prisma.service';
 import { JwtPayload } from './types/jwt-payload.interface';
+import { LoginDto } from './dto/login.dto';
+
+const BCRYPT_ROUNDS = 10;
 
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User) private readonly usersRepo: Repository<User>,
+    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
   ) {}
 
-  async login(dto: LoginDto) {
-    const users = await this.usersRepo.find();
-    const user = await this.findByPin(users, dto.pin);
+  async login(
+    dto: LoginDto,
+  ): Promise<{ accessToken: string; user: Record<string, unknown> }> {
+    const users = await this.prisma.user.findMany({
+      where: { active: true },
+    });
 
-    if (!user) {
+    let matchedUser: (typeof users)[0] | null = null;
+
+    for (const user of users) {
+      const valid = await this.verifyPin(dto.pin, user.pin);
+      if (valid) {
+        matchedUser = user;
+        break;
+      }
+    }
+
+    if (!matchedUser) {
       throw new UnauthorizedException('Invalid PIN');
     }
 
-    if (!user.active) {
-      throw new UnauthorizedException('User is inactive');
+    // Progressive migration: hash plain-text PINs on first login
+    if (!this.isBcryptHash(matchedUser.pin)) {
+      const hashed = await bcrypt.hash(dto.pin, BCRYPT_ROUNDS);
+      await this.prisma.user.update({
+        where: { id: matchedUser.id },
+        data: { pin: hashed },
+      });
     }
 
-    if (!this.isBcryptHash(user.pin)) {
-      user.pin = await bcrypt.hash(dto.pin, 10);
-      await this.usersRepo.save(user);
-    }
+    // locationIds is stored as a JSON string (TypeORM simple-json → TEXT column)
+    // Parse it here; empty array → null → access to all locations
+    const locationIds = this.prisma.parseJson<string[]>(
+      matchedUser.locationIds,
+      [],
+    );
 
     const payload: JwtPayload = {
-      sub: user.id,
-      name: user.name,
-      role: user.role,
-      organizationId: user.organizationId,
-      locationIds: Array.isArray(user.locationIds) ? user.locationIds : [],
+      sub: matchedUser.id,                          // UUID string
+      role: matchedUser.role as 'admin' | 'staff',
+      organizationId: matchedUser.organizationId,
+      locationIds: locationIds.length > 0 ? locationIds : null,
     };
 
     return {
-      accessToken: await this.jwtService.signAsync(payload),
+      accessToken: this.jwtService.sign(payload),
       user: {
-        id: user.id,
-        name: user.name,
-        role: user.role,
-        organizationId: payload.organizationId,
-        locationIds: payload.locationIds,
+        id: matchedUser.id,
+        name: matchedUser.name,
+        role: matchedUser.role,
+        organizationId: matchedUser.organizationId,
+        locationIds,
       },
     };
   }
 
-  async seedAdmin() {
-    const count = await this.usersRepo.count();
-    if (count > 0) {
-      return;
-    }
-
-    const adminPin = '0000';
-    const hashedPin = await bcrypt.hash(adminPin, 10);
-    await this.usersRepo.save(
-      this.usersRepo.create({
-        name: 'Admin',
-        pin: hashedPin,
-        role: 'admin',
-        organizationId: 1,
-        active: true,
-        locationIds: [],
-      }),
-    );
-    console.warn('Seeded default admin user. Change the default PIN immediately.');
+  async hashPin(plain: string): Promise<string> {
+    return bcrypt.hash(plain, BCRYPT_ROUNDS);
   }
 
   async listUsers() {
-    const users = await this.usersRepo.find({ order: { createdAt: 'ASC' } });
-    return users.map(({ pin: _pin, ...safe }) => safe);
-  }
-
-  async createUser(input: { name: string; pin: string; role?: string; locationIds?: string[]; active?: boolean }) {
-    if (!input?.name?.trim() || !input?.pin?.trim()) {
-      throw new ConflictException('Name and PIN are required');
-    }
-
-    const exists = await this.isPinInUse(input.pin);
-    if (exists) {
-      throw new ConflictException('PIN already in use');
-    }
-
-    const user = this.usersRepo.create({
-      name: input.name.trim(),
-      pin: await bcrypt.hash(input.pin, 10),
-      role: input.role ?? 'staff',
-      locationIds: Array.isArray(input.locationIds) ? input.locationIds : [],
-      active: input.active ?? true,
-      organizationId: 1,
+    const users = await this.prisma.user.findMany({
+      orderBy: { createdAt: 'asc' },
     });
 
-    const saved = await this.usersRepo.save(user);
-    const { pin: _pin, ...safe } = saved;
-    return safe;
+    return users.map(({ pin: _, locationIds, ...user }) => ({
+      ...user,
+      locationIds: this.prisma.parseJson<string[]>(locationIds, []),
+    }));
+  }
+
+  async createUser(body: {
+    name: string;
+    pin: string;
+    role?: string;
+    locationIds?: string[];
+    active?: boolean;
+  }) {
+    const pinInUse = await this.isPinInUse(body.pin);
+    if (pinInUse) {
+      throw new UnauthorizedException('PIN already in use');
+    }
+
+    const created = await this.prisma.user.create({
+      data: {
+        name: body.name,
+        pin: await this.hashPin(body.pin),
+        role: body.role === 'admin' ? 'admin' : 'staff',
+        active: body.active ?? true,
+        locationIds: this.prisma.serializeJson(body.locationIds ?? []),
+      },
+    });
+
+    const { pin: _, locationIds, ...safe } = created;
+    return {
+      ...safe,
+      locationIds: this.prisma.parseJson<string[]>(locationIds, []),
+    };
   }
 
   async updateUser(
     id: string,
-    input: { name?: string; pin?: string; role?: string; locationIds?: string[]; active?: boolean },
+    body: {
+      name?: string;
+      pin?: string;
+      role?: string;
+      locationIds?: string[];
+      active?: boolean;
+    },
   ) {
-    const user = await this.usersRepo.findOneBy({ id });
-    if (!user) {
-      throw new NotFoundException('User not found');
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException();
     }
 
-    if (input.pin) {
-      const exists = await this.isPinInUse(input.pin, id);
-      if (exists) {
-        throw new ConflictException('PIN already in use');
+    if (body.pin) {
+      const pinInUse = await this.isPinInUse(body.pin, id);
+      if (pinInUse) {
+        throw new UnauthorizedException('PIN already in use');
       }
-      user.pin = await bcrypt.hash(input.pin, 10);
     }
 
-    if (typeof input.name === 'string') {
-      user.name = input.name.trim();
-    }
-    if (typeof input.role === 'string') {
-      user.role = input.role;
-    }
-    if (Array.isArray(input.locationIds)) {
-      user.locationIds = input.locationIds;
-    }
-    if (typeof input.active === 'boolean') {
-      user.active = input.active;
-    }
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: {
+        ...(body.name !== undefined ? { name: body.name } : {}),
+        ...(body.pin !== undefined ? { pin: await this.hashPin(body.pin) } : {}),
+        ...(body.role !== undefined
+          ? { role: body.role === 'admin' ? 'admin' : 'staff' }
+          : {}),
+        ...(body.locationIds !== undefined
+          ? { locationIds: this.prisma.serializeJson(body.locationIds) }
+          : {}),
+        ...(body.active !== undefined ? { active: body.active } : {}),
+      },
+    });
 
-    const saved = await this.usersRepo.save(user);
-    const { pin: _pin, ...safe } = saved;
-    return safe;
+    const { pin: _, locationIds, ...safe } = updated;
+    return {
+      ...safe,
+      locationIds: this.prisma.parseJson<string[]>(locationIds, []),
+    };
   }
 
   async deleteUser(id: string) {
-    const user = await this.usersRepo.findOneBy({ id });
-    if (!user) {
-      throw new NotFoundException('User not found');
+    const existing = await this.prisma.user.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException();
     }
 
-    await this.usersRepo.remove(user);
+    await this.prisma.user.delete({ where: { id } });
     return { ok: true };
   }
 
-  private async findByPin(users: User[], pin: string): Promise<User | null> {
-    for (const candidate of users) {
-      if (this.isBcryptHash(candidate.pin)) {
-        const ok = await bcrypt.compare(pin, candidate.pin);
-        if (ok) {
-          return candidate;
-        }
-      } else if (candidate.pin === pin) {
-        return candidate;
-      }
+  async seedAdmin() {
+    const count = await this.prisma.user.count();
+    if (count > 0) {
+      return;
     }
 
-    return null;
+    await this.prisma.user.create({
+      data: {
+        name: 'Admin',
+        pin: await this.hashPin('0000'),
+        role: 'admin',
+        locationIds: this.prisma.serializeJson([]),
+      },
+    });
+  }
+
+  private async verifyPin(plain: string, stored: string): Promise<boolean> {
+    if (this.isBcryptHash(stored)) {
+      return bcrypt.compare(plain, stored);
+    }
+    return plain === stored;
   }
 
   private isBcryptHash(value: string): boolean {
-    return typeof value === 'string' && /^\$2[aby]\$\d{2}\$/.test(value);
+    return value?.startsWith('$2b$') || value?.startsWith('$2a$');
   }
 
-  private async isPinInUse(pin: string, exceptUserId?: string): Promise<boolean> {
-    const users = await this.usersRepo.find();
-    for (const candidate of users) {
-      if (exceptUserId && candidate.id === exceptUserId) {
+  private async isPinInUse(pin: string, excludeUserId?: string): Promise<boolean> {
+    const users = await this.prisma.user.findMany();
+
+    for (const user of users) {
+      if (excludeUserId && user.id === excludeUserId) {
         continue;
       }
 
-      if (this.isBcryptHash(candidate.pin)) {
-        const match = await bcrypt.compare(pin, candidate.pin);
-        if (match) {
-          return true;
-        }
-      } else if (candidate.pin === pin) {
+      const matches = await this.verifyPin(pin, user.pin);
+      if (matches) {
         return true;
       }
     }
+
     return false;
   }
 }

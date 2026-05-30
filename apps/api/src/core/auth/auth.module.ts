@@ -1,30 +1,31 @@
+// UPDATED — removes TypeOrmModule.forFeature([User])
+// PrismaService is injected globally via PrismaModule, so no feature
+// registration is needed here.
+
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from '../../entities/user.entity';
-import { AuthController } from './auth.controller';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
+import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
   imports: [
-    ConfigModule,
-    TypeOrmModule.forFeature([User]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
+      imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
+      useFactory: (config: ConfigService) => ({
+        secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: (configService.get('JWT_EXPIRES_IN') ?? '8h') as `${number}${'s'|'m'|'h'|'d'}`,
+          expiresIn: (config.get<string>('JWT_EXPIRES_IN') ?? '8h') as any,
         },
       }),
     }),
   ],
-  controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  controllers: [AuthController],
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

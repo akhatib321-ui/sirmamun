@@ -2,7 +2,8 @@
   "name": "@sirmamun/api",
   "version": "1.0.0",
   "scripts": {
-    "build": "nest build",
+    "build": "prisma generate && nest build",
+    "postinstall": "prisma generate",
     "start:dev": "nest start --watch",
     "prestart:prod": "npm run build",
     "start:prod": "node dist/main.js"
@@ -15,6 +16,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^10.0.0",
     "@nestjs/typeorm": "^10.0.0",
+    "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
@@ -31,6 +33,7 @@
     "@types/bcrypt": "^6.0.0",
     "@types/node": "^20.0.0",
     "@types/passport-jwt": "^4.0.1",
+    "prisma": "^6.19.3",
     "typescript": "^5.0.0"
   }
 }

@@ -1,20 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Location } from '../entities/location.entity';
-import { Item } from '../entities/item.entity';
-import { Stock } from '../entities/stock.entity';
-import { Log } from '../entities/log.entity';
 import { Public } from '../core/auth/decorators/public.decorator';
+import { PrismaService } from '../core/prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 
 @Controller('bootstrap')
 export class BootstrapController {
   constructor(
-    @InjectRepository(Location) private locations: Repository<Location>,
-    @InjectRepository(Item) private items: Repository<Item>,
-    @InjectRepository(Stock) private stock: Repository<Stock>,
-    @InjectRepository(Log) private log: Repository<Log>,
+    private readonly prisma: PrismaService,
     private settingsSvc: SettingsService,
   ) {}
 
@@ -30,13 +22,19 @@ export class BootstrapController {
 
   @Get()
   async bootstrap() {
-    const [locations, items, stock, log, settings] = await Promise.all([
-      this.locations.find({ order: { createdAt: 'ASC' } }),
-      this.items.find({ order: { name: 'ASC' } }),
-      this.stock.find(),
-      this.log.find({ order: { ts: 'DESC' }, take: 300 }),
+    const [locations, items, stock, logs, settings] = await Promise.all([
+      this.prisma.location.findMany({ orderBy: { createdAt: 'asc' } }),
+      this.prisma.item.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.stock.findMany(),
+      this.prisma.log.findMany({ orderBy: { ts: 'desc' }, take: 300 }),
       this.settingsSvc.get(),
     ]);
+
+    const log = logs.map((entry) => ({
+      ...entry,
+      ts: Number(entry.ts),
+    }));
+
     return { locations, items, stock, log, settings };
   }
 }

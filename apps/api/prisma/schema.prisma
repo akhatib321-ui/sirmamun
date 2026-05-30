@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Location {
+  id        String   @id(map: "PK_7cc1c9e3853b94816c094825e74") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String   @unique(map: "UQ_227023051ab1fedef7a3b6c7e2a") @db.VarChar
+  parentId  String?  @db.VarChar
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("locations")
+}
+
+model Item {
+  id        String   @id(map: "PK_ba5885359424c15ca6b9e79bcf6") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name      String   @db.VarChar
+  uom       String   @db.VarChar
+  desc      String?  @default("") @db.VarChar
+  supplier  String?  @default("") @db.VarChar
+  lowAt     Int      @default(2)
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+
+  @@map("items")
+}
+
+model Stock {
+  id        String   @id(map: "PK_092bc1fc7d860426a1dec5aa8e9") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  iid       String   @db.VarChar
+  lid       String   @db.VarChar
+  qty       Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  @@unique([iid, lid], map: "IDX_0db21d48ccb598ce99c0921117")
+  @@map("stock")
+}
+
+model Log {
+  id       String  @id(map: "PK_350604cbdf991d5930d9e618fbd") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  ts       BigInt
+  type     String  @db.VarChar
+  iid      String  @db.VarChar
+  userId   String? @db.VarChar
+  userName String? @db.VarChar
+  lid      String? @db.VarChar
+  delta    Int?
+  fromQty  Int?
+  toQty    Int?
+  note     String? @db.VarChar
+  fromLid  String? @db.VarChar
+  toLid    String? @db.VarChar
+  qty      Int?
+
+  @@map("log")
+}
+
+model AppSettings {
+  id     Int    @id(map: "PK_4800b266ba790931744b3e53a74") @default(autoincrement())
+  config String
+
+  @@map("app_settings")
+}
+
+model User {
+  id             String   @id(map: "PK_a3ffb1c0c8416b9fc6f907b7433") @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  name           String   @db.VarChar
+  pin            String   @db.VarChar
+  role           String   @default("staff") @db.VarChar
+  locationIds    String   @default("[]")
+  createdAt      DateTime @default(now()) @db.Timestamp(6)
+  organizationId Int      @default(1)
+  active         Boolean  @default(true)
+
+  @@map("users")
+}

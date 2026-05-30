@@ -1,75 +1,82 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Location } from '../entities/location.entity';
-import { Stock } from '../entities/stock.entity';
+import { PrismaService } from '../core/prisma/prisma.service';
 
 @Injectable()
 export class LocationsService {
-  constructor(
-    @InjectRepository(Location) private repo: Repository<Location>,
-    @InjectRepository(Stock) private stockRepo: Repository<Stock>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(name: string, parentId?: string | null) {
-    const exists = await this.repo.findOneBy({ name });
+    const exists = await this.prisma.location.findFirst({ where: { name } });
     if (exists) throw new BadRequestException('Location already exists');
 
     if (parentId) {
-      const parent = await this.repo.findOneBy({ id: parentId });
+      const parent = await this.prisma.location.findUnique({ where: { id: parentId } });
       if (!parent) throw new BadRequestException('Parent location not found');
       if (parent.parentId) {
         throw new BadRequestException('Parent location cannot be a child location');
       }
     }
 
-    return this.repo.save(this.repo.create({ name, parentId: parentId ?? null }));
+    return this.prisma.location.create({
+      data: { name, parentId: parentId ?? null },
+    });
   }
 
   async update(id: string, dto: { name?: string; parentId?: string | null }) {
-    const loc = await this.repo.findOneBy({ id });
+    const loc = await this.prisma.location.findUnique({ where: { id } });
     if (!loc) throw new NotFoundException();
+
+    let nextName = loc.name;
+    let nextParentId = loc.parentId;
 
     if (dto.name !== undefined) {
       const name = dto.name.trim();
       if (!name) throw new BadRequestException('Location name is required');
-      const exists = await this.repo.findOneBy({ name });
+      const exists = await this.prisma.location.findFirst({ where: { name } });
       if (exists && exists.id !== id) throw new BadRequestException('Location already exists');
-      loc.name = name;
+      nextName = name;
     }
 
     if (dto.parentId !== undefined) {
-      const nextParentId = dto.parentId;
+      const requestedParentId = dto.parentId;
 
-      if (nextParentId === id) {
+      if (requestedParentId === id) {
         throw new BadRequestException('Location cannot be its own parent');
       }
 
-      if (nextParentId) {
-        const parent = await this.repo.findOneBy({ id: nextParentId });
+      if (requestedParentId) {
+        const parent = await this.prisma.location.findUnique({
+          where: { id: requestedParentId },
+        });
         if (!parent) throw new BadRequestException('Parent location not found');
         if (parent.parentId) {
           throw new BadRequestException('Parent location cannot be a child location');
         }
 
-        const hasChildren = await this.repo.findOneBy({ parentId: id });
+        const hasChildren = await this.prisma.location.findFirst({
+          where: { parentId: id },
+        });
         if (hasChildren) {
           throw new BadRequestException('A parent location cannot be assigned under another parent');
         }
       }
 
-      loc.parentId = nextParentId ?? null;
+      nextParentId = requestedParentId ?? null;
     }
 
-    return this.repo.save(loc);
+    return this.prisma.location.update({
+      where: { id },
+      data: { name: nextName, parentId: nextParentId },
+    });
   }
 
   async remove(id: string) {
-    const hasStock = await this.stockRepo.findOneBy({ lid: id });
+    const hasStock = await this.prisma.stock.findFirst({ where: { lid: id } });
     if (hasStock) throw new BadRequestException('Cannot remove a location that has stock');
-    const loc = await this.repo.findOneBy({ id });
+    const loc = await this.prisma.location.findUnique({ where: { id } });
     if (!loc) throw new NotFoundException();
-    await this.repo.remove(loc);
+
+    await this.prisma.location.delete({ where: { id } });
     return { ok: true };
   }
 }
