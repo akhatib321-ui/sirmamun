@@ -35,8 +35,6 @@
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
     "@nestjs/schematics": "^10.0.0",
-    "@swc/cli": "^0.5.0",
-    "@swc/core": "^1.15.40",
     "@types/bcrypt": "^6.0.0",
     "@types/multer": "^2.1.0",
     "@types/node": "^20.0.0",
