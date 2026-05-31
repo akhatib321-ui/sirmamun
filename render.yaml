@@ -2,7 +2,7 @@ services:
   - type: web
     name: sirmamun-api
     runtime: node
-    buildCommand: npm install && echo "=== @swc at root ===" && ls node_modules/@swc/ && node -e "try{require('@swc/cli/lib/swc/dir');console.log('SWC OK')}catch(e){console.log('SWC FAIL:',e.message)}" && cd apps/api && npx prisma migrate deploy && NODE_OPTIONS=--max-old-space-size=460 npm run build
+    buildCommand: NODE_OPTIONS=--max-old-space-size=460 npm install && (npx prisma migrate resolve --applied "0_init" || true) && npx prisma migrate deploy && npm run build
     startCommand: node apps/api/dist/main.js
     envVars:
       - key: PORT
