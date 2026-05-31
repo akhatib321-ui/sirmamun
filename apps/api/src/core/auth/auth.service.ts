@@ -1,10 +1,3 @@
-// CORRECTED — replaces the version from the auth integration
-// Changes from original:
-//   - Uses PrismaService instead of TypeORM UserRepository
-//   - sub: string (UUID) instead of sub: number
-//   - Reads user.locationIds (not assignedLocations) and parses JSON string
-//   - Handles the TEXT-stored locationIds from TypeORM simple-json
-
 import {
   Injectable,
   NotFoundException,

@@ -1,7 +1,3 @@
-// CORRECTED — replaces the version from the auth integration
-// Changes from original:
-//   locationIds: number[] → string[] (UUIDs, not integers)
-
 import {
   Injectable,
   CanActivate,

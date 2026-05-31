@@ -1,7 +1,3 @@
-// UPDATED — removes TypeOrmModule.forFeature([User])
-// PrismaService is injected globally via PrismaModule, so no feature
-// registration is needed here.
-
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
