@@ -4,10 +4,14 @@ import ReorderDetail from './ReorderDetail.jsx';
 import OrderList from './OrderList.jsx';
 import CsvUpload from './CsvUpload.jsx';
 import Matching from './Matching.jsx';
+import AggregateReorderDetail from './AggregateReorderDetail.jsx';
+import AggregateOrderList from './AggregateOrderList.jsx';
 
 export default function InventoryShell({ subView, setSubView, user }) {
   const [activeLocationId, setActiveLocationId] = useState('');
   const [activeReportId, setActiveReportId] = useState('');
+  const [aggregateData, setAggregateData] = useState(null);
+  const [aggregateOrderData, setAggregateOrderData] = useState(null);
 
   const view = useMemo(() => {
     if (!subView) return 'reorder';
@@ -32,6 +36,28 @@ export default function InventoryShell({ subView, setSubView, user }) {
       <OrderList
         locationId={activeLocationId}
         onBack={() => setSubView('reorder')}
+      />
+    );
+  }
+
+  if (view === 'aggregate-detail') {
+    return (
+      <AggregateReorderDetail
+        aggregateData={aggregateData}
+        onBack={() => setSubView('reorder')}
+        onBuildOrder={(orderData) => {
+          setAggregateOrderData(orderData);
+          setSubView('aggregate-order');
+        }}
+      />
+    );
+  }
+
+  if (view === 'aggregate-order') {
+    return (
+      <AggregateOrderList
+        orderData={aggregateOrderData}
+        onBack={() => setSubView('aggregate-detail')}
       />
     );
   }
@@ -61,11 +87,24 @@ export default function InventoryShell({ subView, setSubView, user }) {
 
   return (
     <ReorderOverview
-      onOpenDetail={(locationId) => {
+      onOpenDetail={(locationId, nextAggregateData = null) => {
+        if (locationId === 'aggregate') {
+          setAggregateData(nextAggregateData);
+          setSubView('aggregate-detail');
+          return;
+        }
+
         setActiveLocationId(locationId);
         setSubView('reorder-detail');
       }}
-      onOpenOrderList={(locationId) => {
+      onOpenOrderList={(locationId, nextOrderData = null, nextAggregateData = null) => {
+        if (locationId === 'aggregate') {
+          setAggregateData(nextAggregateData);
+          setAggregateOrderData(nextOrderData);
+          setSubView('aggregate-order');
+          return;
+        }
+
         setActiveLocationId(locationId);
         setSubView('order-list');
       }}

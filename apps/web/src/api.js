@@ -156,6 +156,10 @@ export const api = {
   getReorderPending: (locationId)                    => req('GET',    `/inventory/reorder/pending/${locationId}`),
   getReorderHistory: (locationId, page = 1, limit = 20) => req('GET', `/inventory/reorder/history/${locationId}?page=${page}&limit=${limit}`),
   getReorderById: (id)                               => req('GET',    `/inventory/reorder/${id}`),
+  getAggregateReorder: ()                            => req('GET',    '/inventory/reorder/aggregate'),
+  recalculateAggregateReorder: (windowDays = 7)      => req('POST',   `/inventory/reorder/aggregate/recalculate?windowDays=${windowDays}`),
+  buildAggregateOrder: (ingredientIds)               => req('POST',   '/inventory/reorder/aggregate/build-order', { ingredientIds }),
+  markAggregateOrdered: (payload)                    => req('POST',   '/inventory/reorder/aggregate/mark-ordered', payload),
 
   getSalesReports: (locationId, page = 1, limit = 25) => req('GET',   `/inventory/sales/${locationId}?page=${page}&limit=${limit}`),
   getUnmatchedItems: (reportId)                      => req('GET',    `/inventory/sales/reports/${reportId}/unmatched`),

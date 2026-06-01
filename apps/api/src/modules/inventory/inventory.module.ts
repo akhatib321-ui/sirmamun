@@ -8,6 +8,8 @@ import { ReorderService } from './reorder/reorder.service';
 import { ReorderController } from './reorder/reorder.controller';
 import { SuppliersService } from './suppliers/suppliers.service';
 import { SuppliersController } from './suppliers/suppliers.controller';
+import { AggregateReorderService } from './aggregate-reorder.service';
+import { AggregateReorderController } from './aggregate-reorder.controller';
 
 /**
  * Inventory module owns:
@@ -26,8 +28,8 @@ import { SuppliersController } from './suppliers/suppliers.controller';
     // Memory storage for CSV uploads — files are parsed in-memory and discarded
     MulterModule.register({ storage: undefined }), // uses memoryStorage by default
   ],
-  providers: [SalesService, ReorderService, SuppliersService],
-  controllers: [SalesController, ReorderController, SuppliersController],
+  providers: [SalesService, ReorderService, SuppliersService, AggregateReorderService],
+  controllers: [SalesController, ReorderController, SuppliersController, AggregateReorderController],
   exports: [ReorderService],
 })
 export class InventoryModule {}
