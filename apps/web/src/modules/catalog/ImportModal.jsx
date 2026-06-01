@@ -40,24 +40,6 @@ const s = {
     marginBottom: 16,
     lineHeight: 1.5,
   },
-  tabs: {
-    display: 'flex',
-    borderBottom: `1px solid ${C.colors.border}`,
-    marginBottom: 18,
-  },
-  tab: (active) => ({
-    border: 'none',
-    background: 'transparent',
-    cursor: 'pointer',
-    padding: '9px 14px',
-    fontFamily: C.fonts.body,
-    fontWeight: 700,
-    color: active ? C.colors.ink : C.colors.muted,
-    borderBottom: active ? `2px solid ${C.gold}` : '2px solid transparent',
-    textTransform: 'uppercase',
-    fontSize: 12,
-    letterSpacing: 0.5,
-  }),
   help: {
     ...ui.card,
     background: C.cream,
@@ -93,7 +75,7 @@ function ErrorBox({ message }) {
   );
 }
 
-function ResultBox({ result, mode }) {
+function ResultBox({ result }) {
   if (!result) return null;
   const hasErrors = !!result?.hasErrors;
   return (
@@ -101,22 +83,12 @@ function ResultBox({ result, mode }) {
       <div style={{ fontWeight: 700, marginBottom: 8, color: hasErrors ? C.colors.danger : C.colors.success }}>
         {hasErrors ? 'Import completed with warnings' : 'Import successful'}
       </div>
-      {mode === 'json' && (
-        <>
-          <div style={{ fontSize: 12 }}>Ingredients: {result.summary.ingredients.created} created, {result.summary.ingredients.updated} updated</div>
-          <div style={{ fontSize: 12 }}>Costs added: {result.summary.costs.added}</div>
-          <div style={{ fontSize: 12 }}>Recipes: {result.summary.recipes.created} created, {result.summary.recipes.updated} updated</div>
-          <div style={{ fontSize: 12 }}>Links: {result.summary.links.created}</div>
-        </>
-      )}
-      {mode === 'csv' && (
-        <>
-          <div style={{ fontSize: 12 }}>Ingredients created: {result.summary.created}</div>
-          <div style={{ fontSize: 12 }}>Ingredients updated: {result.summary.updated}</div>
-          <div style={{ fontSize: 12 }}>Costs added: {result.summary.costsAdded}</div>
-          <div style={{ fontSize: 12 }}>Rows skipped: {result.summary.skipped}</div>
-        </>
-      )}
+      <>
+        <div style={{ fontSize: 12 }}>Ingredients created: {result.summary.created}</div>
+        <div style={{ fontSize: 12 }}>Ingredients updated: {result.summary.updated}</div>
+        <div style={{ fontSize: 12 }}>Costs added: {result.summary.costsAdded}</div>
+        <div style={{ fontSize: 12 }}>Rows skipped: {result.summary.skipped}</div>
+      </>
       {result.errors?.length > 0 && (
         <div style={{ marginTop: 8, fontSize: 11, color: C.colors.danger }}>
           {result.errors.slice(0, 5).map((e, i) => (
@@ -124,82 +96,6 @@ function ResultBox({ result, mode }) {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function JsonTab({ locationId, onDone }) {
-  const [file, setFile] = useState(null);
-  const [dragging, setDragging] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [result, setResult] = useState(null);
-  const fileRef = useRef(null);
-
-  const handleImport = async () => {
-    if (!file) return;
-    setLoading(true);
-    setError('');
-    setResult(null);
-    try {
-      const payload = JSON.parse(await file.text());
-      const res = await api.importCatalogJson(locationId, payload);
-      setResult(res.data);
-    } catch (e) {
-      setError(e.message || 'Import failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div>
-      <div style={s.help}>
-        Upload the JSON from Export for platform. This imports ingredients, recipes, and recipe links in one operation.
-      </div>
-      <div
-        style={s.dropzone(dragging, !!file)}
-        onClick={() => fileRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          const dropped = e.dataTransfer.files[0];
-          if (dropped) {
-            setFile(dropped);
-            setError('');
-            setResult(null);
-          }
-        }}
-      >
-        <div style={{ fontSize: 28 }}>{file ? 'JSON Ready' : 'Drop JSON here'}</div>
-        <div style={{ color: C.colors.muted, fontSize: 12 }}>{file ? file.name : 'or click to browse'}</div>
-      </div>
-      <input
-        ref={fileRef}
-        type='file'
-        accept='.json'
-        style={{ display: 'none' }}
-        onChange={(e) => {
-          setFile(e.target.files[0]);
-          setError('');
-          setResult(null);
-        }}
-      />
-
-      <ErrorBox message={error} />
-      <ResultBox result={result} mode='json' />
-
-      <div style={s.actions}>
-        {result ? (
-          <button style={{ ...ui.button, background: C.colors.ink, color: '#fff' }} onClick={onDone}>Done and refresh</button>
-        ) : (
-          <button style={{ ...ui.button, background: C.colors.ink, color: '#fff', opacity: (!file || loading) ? 0.5 : 1 }} disabled={!file || loading} onClick={handleImport}>
-            {loading ? 'Importing...' : 'Import catalog'}
-          </button>
-        )}
-      </div>
     </div>
   );
 }
@@ -237,7 +133,7 @@ function CsvTab({ locationId, onDone }) {
   return (
     <div>
       <div style={s.help}>
-        Download the template, fill invoice costs, and upload. Required columns: name, unit.
+        Fallback upload for ingredients and costs. Use this when AI Intake is not suitable. Required columns: name, unit.
       </div>
       <button style={{ ...ui.button, background: C.brandSoft, marginBottom: 12 }} onClick={downloadTemplate}>Download CSV template</button>
 
@@ -273,7 +169,7 @@ function CsvTab({ locationId, onDone }) {
       />
 
       <ErrorBox message={error} />
-      <ResultBox result={result} mode='csv' />
+      <ResultBox result={result} />
 
       <div style={s.actions}>
         {result ? (
@@ -289,21 +185,13 @@ function CsvTab({ locationId, onDone }) {
 }
 
 export default function ImportModal({ locationId, onClose, onDone }) {
-  const [tab, setTab] = useState('json');
-
   return (
     <div style={s.overlay} onClick={onClose}>
       <div style={s.modal} onClick={(e) => e.stopPropagation()}>
-        <div style={s.title}>Bulk import</div>
-        <div style={s.subtitle}>Import full catalog JSON or ingredients CSV with optional costs.</div>
+        <div style={s.title}>Spreadsheet Import</div>
+        <div style={s.subtitle}>Admin fallback: upload ingredients CSV with optional cost data.</div>
 
-        <div style={s.tabs}>
-          <button style={s.tab(tab === 'json')} onClick={() => setTab('json')}>Full catalog (JSON)</button>
-          <button style={s.tab(tab === 'csv')} onClick={() => setTab('csv')}>Ingredients (CSV)</button>
-        </div>
-
-        {tab === 'json' && <JsonTab locationId={locationId} onDone={onDone} />}
-        {tab === 'csv' && <CsvTab locationId={locationId} onDone={onDone} />}
+        <CsvTab locationId={locationId} onDone={onDone} />
 
         <div style={{ display: 'flex', justifyContent: 'flex-start', marginTop: 8 }}>
           <button style={{ ...ui.button, background: '#fff', border: `1px solid ${C.colors.border}` }} onClick={onClose}>Cancel</button>

@@ -4,6 +4,7 @@ import IngredientsView from './IngredientsView.jsx';
 import RecipesView from './RecipesView.jsx';
 import MarginsView from './MarginsView.jsx';
 import UomView from './UomView.jsx';
+import AIIntakeView from './AIIntakeView.jsx';
 import ImportModal from './ImportModal.jsx';
 import { api } from '../../api.js';
 import { tokens as C } from '../../shared/styles.js';
@@ -15,6 +16,7 @@ function TabBar({ active, onChange }) {
     { key: 'recipes',     label: '📋 Recipes' },
     { key: 'margins',     label: '📊 Margins' },
     { key: 'uom',         label: '📐 UOM guide' },
+    { key: 'ai-intake',   label: '✨ AI Intake' },
   ];
   return (
     <div style={{ display: 'flex', background: C.cream, borderBottom: `1px solid ${C.beigeLight}` }}>
@@ -37,7 +39,7 @@ function TabBar({ active, onChange }) {
   );
 }
 
-export default function CatalogShell({ subView: initialSubView, onNavigate }) {
+export default function CatalogShell({ subView: initialSubView, onNavigate, user }) {
   const [subView,    setSubView]   = useState(initialSubView ?? 'ingredients');
   const [locations,  setLocations] = useState([]);
   const [locationId, setLocId]     = useState('');
@@ -87,24 +89,26 @@ export default function CatalogShell({ subView: initialSubView, onNavigate }) {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {locationSelector}
-          <button
-            style={{
-              fontFamily: 'DM Sans',
-              fontSize: 12,
-              padding: '5px 14px',
-              border: `1px solid ${C.gold}`,
-              borderRadius: 50,
-              background: 'transparent',
-              color: C.gold,
-              cursor: 'pointer',
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase',
-              fontWeight: 700,
-            }}
-            onClick={() => setShowImport(true)}
-          >
-            Import
-          </button>
+          {user?.role === 'admin' && (
+            <button
+              style={{
+                fontFamily: 'DM Sans',
+                fontSize: 12,
+                padding: '5px 14px',
+                border: `1px solid ${C.gold}`,
+                borderRadius: 50,
+                background: 'transparent',
+                color: C.gold,
+                cursor: 'pointer',
+                letterSpacing: '0.04em',
+                textTransform: 'uppercase',
+                fontWeight: 700,
+              }}
+              onClick={() => setShowImport(true)}
+            >
+              Legacy Import
+            </button>
+          )}
         </div>
       </div>
       <TabBar active={subView} onChange={handleTabChange} />
@@ -113,6 +117,7 @@ export default function CatalogShell({ subView: initialSubView, onNavigate }) {
         {subView === 'recipes'     && <RecipesView     key={`recipes-${refreshKey}`} locationId={locationId} />}
         {subView === 'margins'     && <MarginsView     key={`margins-${refreshKey}`} locationId={locationId} />}
         {subView === 'uom'         && <UomView />}
+        {subView === 'ai-intake'   && <AIIntakeView locationId={locationId} onNavigate={onNavigate} />}
       </div>
       {showImport && locationId && (
         <ImportModal

@@ -8,6 +8,8 @@ import { RecipesService } from './recipes/recipes.service';
 import { RecipesController } from './recipes/recipes.controller';
 import { CatalogImportService } from './catalog-import.service';
 import { CatalogImportController } from './catalog-import.controller';
+import { CatalogAiIntakeService } from './catalog-ai-intake.service';
+import { CatalogAiIntakeController } from './catalog-ai-intake.controller';
 
 /**
  * Catalog module owns: Ingredient, IngredientCost, Recipe, RecipeIngredient.
@@ -18,8 +20,8 @@ import { CatalogImportController } from './catalog-import.controller';
  */
 @Module({
   imports: [EventEmitterModule, MulterModule.register({})],
-  providers: [IngredientsService, RecipesService, CatalogImportService],
-  controllers: [IngredientsController, RecipesController, CatalogImportController],
+  providers: [IngredientsService, RecipesService, CatalogImportService, CatalogAiIntakeService],
+  controllers: [IngredientsController, RecipesController, CatalogImportController, CatalogAiIntakeController],
   exports: [IngredientsService, RecipesService],
 })
 export class CatalogModule {}
