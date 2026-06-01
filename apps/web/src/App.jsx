@@ -100,6 +100,26 @@ function getLowGroups(data){
   return groups;
 }
 
+function getUnitConversion(settings,itemId){
+  const map=settings?.unitConversions||{};
+  const row=map[itemId];
+  if(!row)return null;
+  const factor=Number(row.factor);
+  if(!row.altUnit||!Number.isFinite(factor)||factor<=0)return null;
+  return {
+    altUnit:String(row.altUnit).trim(),
+    factor,
+    note:row.note?String(row.note):'',
+    showBothUnits:row.showBothUnits!==false,
+  };
+}
+
+function fmtQty(n){
+  if(!Number.isFinite(n))return '0';
+  if(Number.isInteger(n))return String(n);
+  return n.toFixed(2).replace(/\.00$/,'').replace(/(\.\d*[1-9])0+$/,'$1');
+}
+
 // ─── ICONS ────────────────────────────────────────────────
 const Ic={
   dash:<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 8h1a4 4 0 010 8h-1"/><path d="M3 8h14v9a4 4 0 01-4 4H7a4 4 0 01-4-4V8z"/><line x1="7" y1="3" x2="7" y2="6" strokeLinecap="round"/><line x1="11" y1="2" x2="11" y2="5" strokeLinecap="round"/><line x1="15" y1="3" x2="15" y2="6" strokeLinecap="round"/></svg>,
@@ -287,12 +307,48 @@ function AddEditItemModal({editItem,prefill,user,data,refresh,onClose}){
   const [desc,setDesc]=useState(editItem?.desc||prefill?.desc||'');
   const [supplier,setSupplier]=useState(editItem?.supplier||prefill?.supplier||'');
   const [lowAt,setLowAt]=useState(String(editItem?.lowAt??prefill?.lowAt??2));
+  const existingConv=editItem?getUnitConversion(data.settings,editItem.id):null;
+  const [convEnabled,setConvEnabled]=useState(Boolean(existingConv));
+  const [altUnit,setAltUnit]=useState(existingConv?.altUnit||'');
+  const [convFactor,setConvFactor]=useState(existingConv?String(existingConv.factor):'');
+  const [convNote,setConvNote]=useState(existingConv?.note||'');
+  const [showBothUnits,setShowBothUnits]=useState(existingConv?existingConv.showBothUnits!==false:true);
   const [err,setErr]=useState('');
   const save=async()=>{
     if(!name.trim()){setErr('Item name is required');return;}
     if(!uom.trim()){setErr('Unit of measure is required');return;}
+    if(convEnabled){
+      if(!altUnit.trim()){setErr('Alternative unit is required when conversion is enabled');return;}
+      const factorNum=Number(convFactor);
+      if(!Number.isFinite(factorNum)||factorNum<=0){setErr('Conversion factor must be a positive number');return;}
+    }
     const p={name:name.trim(),uom:uom.trim(),desc:desc.trim(),supplier:supplier.trim(),lowAt:parseInt(lowAt)||2};
-    try{if(editItem)await api.updateItem(editItem.id,p);else await api.createItem(p);await refresh();onClose();}catch(e){setErr(e.message);}
+    try{
+      const itemRow=editItem?await api.updateItem(editItem.id,p):await api.createItem(p);
+      const itemId=editItem?.id||itemRow?.id;
+
+      if(itemId){
+        const nextSettings={...(data.settings||{})};
+        const nextMap={...(nextSettings.unitConversions||{})};
+
+        if(convEnabled){
+          nextMap[itemId]={
+            altUnit:altUnit.trim(),
+            factor:Number(convFactor),
+            note:convNote.trim(),
+            showBothUnits:Boolean(showBothUnits),
+          };
+        }else{
+          delete nextMap[itemId];
+        }
+
+        nextSettings.unitConversions=nextMap;
+        await api.updateSettings(nextSettings);
+      }
+
+      await refresh();
+      onClose();
+    }catch(e){setErr(e.message);}
   };
   return(
     <Sheet title={editItem?'Edit Item':'New Item'} onClose={onClose}>
@@ -307,6 +363,43 @@ function AddEditItemModal({editItem,prefill,user,data,refresh,onClose}){
       <Inp label="Description" value={desc} onChange={setDesc} placeholder="Optional"/>
       {user?.role==='admin'&&<Inp label="Supplier" value={supplier} onChange={setSupplier} placeholder="Optional"/>}
       <Inp label="Low Stock Alert Threshold" value={lowAt} onChange={setLowAt} type="number" note="Flag item when quantity is at or below this number"/>
+
+      <div style={{background:'#fff',border:`1px solid ${C.beige}`,borderRadius:12,padding:'12px 12px 2px',marginBottom:12}}>
+        <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:10,cursor:'pointer',fontFamily:ff,color:C.warm,fontSize:13.5,fontWeight:600}}>
+          <input type="checkbox" checked={convEnabled} onChange={e=>setConvEnabled(e.target.checked)} />
+          Enable alternative unit conversion
+        </label>
+
+        {convEnabled&&(
+          <>
+            <Inp
+              label="Alternative Unit"
+              value={altUnit}
+              onChange={setAltUnit}
+              placeholder="e.g. box"
+              note={`Example: if base unit is ${uom||'bottle'}, set alternative unit to box`}
+            />
+            <Inp
+              label={`Conversion Factor (1 ${altUnit||'alt unit'} = ? ${uom||'base units'})`}
+              value={convFactor}
+              onChange={setConvFactor}
+              type="number"
+              placeholder="e.g. 12"
+            />
+            <Inp
+              label="Conversion Note"
+              value={convNote}
+              onChange={setConvNote}
+              placeholder="e.g. One box contains 12 bottles"
+            />
+            <label style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,cursor:'pointer',fontFamily:ff,color:C.warmM,fontSize:12.5}}>
+              <input type="checkbox" checked={showBothUnits} onChange={e=>setShowBothUnits(e.target.checked)} />
+              Show both units in catalog and stock detail views
+            </label>
+          </>
+        )}
+      </div>
+
       <ErrBox msg={err}/>
       <Btn onClick={save} variant="dark" size="lg">{editItem?'Save Changes':'Add to Catalog'}</Btn>
     </Sheet>
@@ -454,21 +547,64 @@ function DashboardView({data,openModal,user,setTab}){
   const recentLog=(data.log||[]).slice(0,5);
   const {childrenByParent,ordered:locOrdered}=getLocationHierarchy(data.locations);
   const healthLocs=locOrdered.filter(({kind})=>kind==='parent'||kind==='standalone');
-
-  // Needs action today
-  const urgentItems=[];
-  data.items.forEach(it=>{
-    const rate=calcRate(data.log,it.id);
-    const itemStocks=data.stock.filter(s=>s.iid===it.id&&s.qty<=it.lowAt);
-    itemStocks.forEach(s=>{
-      const insight=stockInsight(s.qty,rate,it.leadTime);
-      if(insight&&(insight.urgency==='expedite'||insight.urgency==='soon')){
-        const lc=data.locations.find(l=>l.id===s.lid);
-        urgentItems.push({it,s,lc,insight,rate});
-      }
-    });
+  const [activityOpen,setActivityOpen]=useState(false);
+  const [reorderRollup,setReorderRollup]=useState({
+    loading:true,
+    error:'',
+    locations:0,
+    total:0,
+    orderToday:0,
+    orderThisWeek:0,
+    planAhead:0,
   });
-  urgentItems.sort((a,b)=>({expedite:0,soon:1}[a.insight.urgency])-({expedite:0,soon:1}[b.insight.urgency]));
+
+  useEffect(()=>{
+    let alive=true;
+    async function loadReorderRollup(){
+      setReorderRollup(prev=>({...prev,loading:true,error:''}));
+      try{
+        const parentLocations=(data.locations||[]).filter(l=>!l.parentId);
+        const alerts=await Promise.all(parentLocations.map(async loc=>{
+          try{
+            const res=await api.getReorderAlerts(loc.id);
+            return res?.data||{hasSuggestion:false};
+          }catch{
+            return {hasSuggestion:false};
+          }
+        }));
+
+        const next={
+          loading:false,
+          error:'',
+          locations:parentLocations.length,
+          total:0,
+          orderToday:0,
+          orderThisWeek:0,
+          planAhead:0,
+        };
+        alerts.forEach(a=>{
+          if(!a||!a.hasSuggestion)return;
+          next.total+=Number(a.total||0);
+          next.orderToday+=Number(a.orderToday||0);
+          next.orderThisWeek+=Number(a.orderThisWeek||0);
+          next.planAhead+=Number(a.planAhead||0);
+        });
+        if(alive)setReorderRollup(next);
+      }catch(e){
+        if(alive)setReorderRollup({
+          loading:false,
+          error:e?.message||'Could not load Smart Orders metrics',
+          locations:0,
+          total:0,
+          orderToday:0,
+          orderThisWeek:0,
+          planAhead:0,
+        });
+      }
+    }
+    loadReorderRollup();
+    return()=>{alive=false;};
+  },[data.locations]);
 
   return(
     <div style={{padding:'18px 16px'}}>
@@ -516,34 +652,33 @@ function DashboardView({data,openModal,user,setTab}){
         })}
       </div>
 
-      {/* Section B — Needs action today */}
-      <SecHead title="Needs action today" action={<span style={{fontSize:12.5,fontWeight:600,color:C.gold,fontFamily:ff,cursor:'default'}}>Full list →</span>}/>
-      {urgentItems.length===0?(
-        <div style={{background:'#fff',borderRadius:12,padding:'18px',textAlign:'center',marginBottom:20,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
-          <div style={{fontSize:24,marginBottom:6}}>☕</div>
-          <div style={{color:C.green,fontWeight:600,fontFamily:ff,fontSize:14}}>Nothing urgent today</div>
-          <div style={{color:C.warmL,fontSize:12,marginTop:4,fontFamily:ff}}>All items have enough runway.</div>
+      {/* Smart Orders Rollup */}
+      <SecHead title="Smart Orders Rollup" action={<span style={{fontSize:12,color:C.warmL,fontFamily:ff}}>Module 2</span>}/>
+      <div
+        onClick={()=>setTab('module2')}
+        style={{background:'#fff',borderRadius:14,padding:'14px 16px',marginBottom:20,boxShadow:'0 1px 6px rgba(0,0,0,.05)',cursor:'pointer'}}
+      >
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:10}}>
+          <div style={{fontWeight:700,fontSize:15,fontFamily:ff,color:C.warm}}>Reorder Overview</div>
+          <div style={{fontSize:11.5,color:C.gold,fontFamily:ff,fontWeight:700}}>Open Smart Orders →</div>
         </div>
-      ):urgentItems.map(({it,s,lc,insight,rate})=>{
-        const isExp=insight.urgency==='expedite';
-        const dotCol=isExp?C.red:C.amber;
-        const pillBg=isExp?C.redL:C.amberL;
-        return(
-          <div key={`${it.id}-${s.id}`} style={{background:'#fff',borderRadius:12,padding:'12px 14px',marginBottom:8,display:'flex',alignItems:'center',gap:10,boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
-            <div style={{width:8,height:8,borderRadius:'50%',background:dotCol,flexShrink:0}}/>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:600,color:C.warm,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.name}</div>
-              <div style={{fontSize:11,color:C.warmL,marginTop:2,fontFamily:ff}}>{lc?.name}{rate>0?` · ${rate.toFixed(1)}/day`:''}</div>
+        {reorderRollup.loading?(
+          <div style={{fontSize:12.5,color:C.warmL,fontFamily:ff}}>Loading Smart Orders metrics…</div>
+        ):reorderRollup.error?(
+          <div style={{fontSize:12.5,color:C.red,fontFamily:ff}}>{reorderRollup.error}</div>
+        ):(
+          <>
+            <div style={{fontSize:12.5,color:C.warmM,fontFamily:ff,marginBottom:10}}>
+              {reorderRollup.total} suggested items across {reorderRollup.locations} location{reorderRollup.locations!==1?'s':''}
             </div>
-            <div style={{textAlign:'right',flexShrink:0}}>
-              <div style={{background:pillBg,color:dotCol,borderRadius:22,padding:'3px 10px',fontSize:11.5,fontWeight:600,fontFamily:ff,whiteSpace:'nowrap'}}>{isExp?'🚨 Expedite':'⚠️ Order soon'}</div>
-              <div style={{fontSize:10,color:C.warmL,marginTop:3,fontFamily:ff}}>{insight.label}</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <Tag color="red">Order Today: {reorderRollup.orderToday}</Tag>
+              <Tag color="amber">This Week: {reorderRollup.orderThisWeek}</Tag>
+              <Tag color="green">Plan Ahead: {reorderRollup.planAhead}</Tag>
             </div>
-          </div>
-        );
-      })}
-
-      {(()=>{const sc=Object.keys(getSnoozed()).length;return sc>0?(<div style={{marginTop:8,fontSize:12,color:C.warmL,fontFamily:ff,cursor:'pointer'}} onClick={()=>setTab('reorder')}><i>{sc} item{sc!==1?'s':''} on order — tap to view</i></div>):null;})()}
+          </>
+        )}
+      </div>
 
       {/* Locations Overview */}
       <div style={{marginTop:20}}>
@@ -574,12 +709,35 @@ function DashboardView({data,openModal,user,setTab}){
 
       {/* Recent Activity */}
       <div style={{marginTop:20}}>
-        <SecHead title="Recent Activity" action={recentLog.length>0&&<button onClick={()=>openModal({type:'log'})} style={{fontSize:12.5,fontWeight:600,color:C.gold,background:'none',border:'none',cursor:'pointer',fontFamily:ff,padding:0}}>View all →</button>}/>
-        {recentLog.length===0?(
-          <div style={{background:'#fff',borderRadius:14,padding:'18px',textAlign:'center',boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
-            <div style={{color:C.warmL,fontSize:13,fontFamily:ff}}>No activity yet — adjustments and transfers will appear here</div>
-          </div>
-        ):recentLog.map(e=><LogEntry key={e.id} e={e} data={data}/>)}
+        <div style={{background:'#fff',borderRadius:14,padding:'14px 16px',boxShadow:'0 1px 6px rgba(0,0,0,.05)'}}>
+          <button
+            onClick={()=>setActivityOpen(v=>!v)}
+            style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',background:'none',border:'none',padding:0,cursor:'pointer'}}
+          >
+            <div style={{textAlign:'left'}}>
+              <div style={{fontWeight:700,fontSize:15,fontFamily:ff,color:C.warm}}>Recent Activity</div>
+              <div style={{fontSize:12,color:C.warmL,fontFamily:ff,marginTop:2}}>
+                {recentLog.length===0?'No recent updates':`${recentLog.length} recent event${recentLog.length!==1?'s':''}`}
+              </div>
+            </div>
+            <div style={{fontSize:12,color:C.gold,fontFamily:ff,fontWeight:700}}>{activityOpen?'Hide':'Expand'} {activityOpen?'▲':'▼'}</div>
+          </button>
+
+          {activityOpen&&(
+            <div style={{marginTop:12}}>
+              {recentLog.length===0?(
+                <div style={{color:C.warmL,fontSize:13,fontFamily:ff}}>No activity yet — adjustments and transfers will appear here</div>
+              ):(
+                <>
+                  {recentLog.map(e=><LogEntry key={e.id} e={e} data={data}/>)}
+                  <div style={{marginTop:10}}>
+                    <button onClick={()=>openModal({type:'log'})} style={{fontSize:12.5,fontWeight:600,color:C.gold,background:'none',border:'none',cursor:'pointer',fontFamily:ff,padding:0}}>View full log →</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -843,6 +1001,7 @@ function CatalogView({data,refresh,openModal,user}){
   if(selectedItemId){
     const it=data.items.find(i=>i.id===selectedItemId);
     if(!it){setSelectedItemId(null);return null;}
+    const conv=getUnitConversion(data.settings,it.id);
     const {byId}=getLocationHierarchy(data.locations);
     const stockRows=data.stock
       .filter(s=>s.iid===selectedItemId)
@@ -863,11 +1022,13 @@ function CatalogView({data,refresh,openModal,user}){
               {it.desc&&<div style={{color:C.warmM,fontSize:13,marginTop:4,lineHeight:1.4,fontFamily:ff}}>{it.desc}</div>}
               <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:10,alignItems:'center'}}>
                 <Tag color="gold">{it.uom}</Tag>
+                {conv&&<Tag color="amber">1 {conv.altUnit} = {fmtQty(conv.factor)} {it.uom}</Tag>}
                 {it.supplier&&showSupplier&&<Tag color="gold">📦 {it.supplier}</Tag>}
                 <span style={{fontSize:11.5,color:C.warmL,fontFamily:ff}}>Low at: {it.lowAt}</span>
                 <span style={{fontSize:11.5,color:C.warmL,fontFamily:ff}}>·</span>
                 <span style={{fontSize:11.5,color:C.warmM,fontFamily:ff,fontWeight:500}}>{totalQty} total units</span>
               </div>
+              {conv?.note&&<div style={{fontSize:12,color:C.warmL,fontFamily:ff,marginTop:8}}>{conv.note}</div>}
             </div>
             <div style={{display:'flex',gap:6,flexShrink:0}}>
               <button onClick={()=>openModal({type:'edit-item',item:it})} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.beigeD}`,background:C.beige,color:C.warmM,cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.edit} Edit</button>
@@ -888,7 +1049,10 @@ function CatalogView({data,refresh,openModal,user}){
                   {r.locName}
                   {r.low&&<Tag color="red">low</Tag>}
                 </div>
-                <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:700,fontFamily:ff,color:r.low?C.red:C.warm,textAlign:'right'}}>{r.qty}</div>
+                <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:700,fontFamily:ff,color:r.low?C.red:C.warm,textAlign:'right'}}>
+                  {r.qty}
+                  {conv?.showBothUnits&&<div style={{fontSize:11,color:C.warmL,fontWeight:500,marginTop:2}}>~{fmtQty(r.qty/conv.factor)} {conv.altUnit}</div>}
+                </div>
                 <div style={{padding:'12px 16px',fontSize:13,fontFamily:ff,color:C.warmM,minWidth:60}}>{it.uom}</div>
               </div>
             ))}
@@ -915,6 +1079,7 @@ function CatalogView({data,refresh,openModal,user}){
           <div style={{fontSize:13,marginTop:5}}>Tap "New Item" to add your first product</div>
         </div>
       ):filtered.map(it=>{
+        const conv=getUnitConversion(data.settings,it.id);
         const totalQty=data.stock.filter(s=>s.iid===it.id).reduce((a,s)=>a+s.qty,0);
         const locCount=data.stock.filter(s=>s.iid===it.id).length;
         return(
@@ -927,10 +1092,17 @@ function CatalogView({data,refresh,openModal,user}){
                 {it.desc&&<div style={{color:C.warmM,fontSize:12.5,marginTop:3,lineHeight:1.4,fontFamily:ff}}>{it.desc}</div>}
                 <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8,alignItems:'center'}}>
                   <Tag color="gold">{it.uom}</Tag>
+                  {conv&&<Tag color="amber">1 {conv.altUnit} = {fmtQty(conv.factor)} {it.uom}</Tag>}
                   {it.supplier&&(user?.role==='admin'||!data.settings?.hiddenFields?.includes('supplier'))&&<Tag color="gold">📦 {it.supplier}</Tag>}
                   <span style={{fontSize:11,color:C.warmL,fontFamily:ff}}>Low at: {it.lowAt}</span>
                 </div>
-                <div style={{fontSize:12,color:C.warmM,marginTop:6,fontFamily:ff}}>{totalQty} total units · {locCount} location{locCount!==1?'s':''}</div>
+                <div style={{fontSize:12,color:C.warmM,marginTop:6,fontFamily:ff}}>
+                  {totalQty} total units
+                  {conv?.showBothUnits&&<span> (~{fmtQty(totalQty/conv.factor)} {conv.altUnit})</span>}
+                  {' · '}
+                  {locCount} location{locCount!==1?'s':''}
+                </div>
+                {conv?.note&&<div style={{fontSize:11.5,color:C.warmL,marginTop:4,fontFamily:ff}}>{conv.note}</div>}
               </div>
               <div style={{display:'flex',flexDirection:'column',gap:6,flexShrink:0}} onClick={e=>e.stopPropagation()}>
                 <button onClick={()=>openModal({type:'edit-item',item:it})} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${C.beigeD}`,background:C.beige,color:C.warmM,cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>{Ic.edit} Edit</button>
@@ -948,7 +1120,7 @@ function CatalogView({data,refresh,openModal,user}){
 function LocationsView({data,refresh,openModal,user}){
   const [selectedLocId,setSelectedLocId]=useState(null);
   const deleteLoc=async id=>{try{await api.deleteLocation(id);await refresh();}catch(e){alert(e.message);}};
-  const {childrenByParent,ordered}=getLocationHierarchy(data.locations);
+  const {byId,childrenByParent,ordered}=getLocationHierarchy(data.locations);
 
   const getChildren=(parentId)=>childrenByParent.get(parentId)||[];
   const getLocationStock=(locId)=>data.stock.filter(s=>s.lid===locId);
@@ -959,28 +1131,44 @@ function LocationsView({data,refresh,openModal,user}){
 
   if(selectedLocId){
     const loc=data.locations.find(l=>l.id===selectedLocId);
-    const ls=getLocationStock(selectedLocId);
-    const rows=ls.map(s=>{const it=data.items.find(i=>i.id===s.iid);return it?{...s,name:it.name,uom:it.uom,low:s.qty<=it.lowAt}:null;}).filter(Boolean).sort((a,b)=>a.name.localeCompare(b.name));
+    const children=getChildren(selectedLocId);
+    const isParent=children.length>0;
+    const childIds=children.map(c=>c.id);
+    const ls=isParent?data.stock.filter(s=>childIds.includes(s.lid)):getLocationStock(selectedLocId);
+    const rows=ls.map(s=>{
+      const it=data.items.find(i=>i.id===s.iid);
+      if(!it)return null;
+      return {
+        ...s,
+        name:it.name,
+        uom:it.uom,
+        low:s.qty<=it.lowAt,
+        childName:isParent?(byId.get(s.lid)?.name||'Unknown'):'',
+      };
+    }).filter(Boolean).sort((a,b)=>isParent?(a.childName.localeCompare(b.childName)||a.name.localeCompare(b.name)):a.name.localeCompare(b.name));
     return(
       <div style={{padding:'14px 16px'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
           <button onClick={()=>setSelectedLocId(null)} style={{padding:'7px 12px',borderRadius:9,border:`1.5px solid ${C.beigeD}`,cursor:'pointer',background:C.beige,color:C.warmM,display:'flex',alignItems:'center',gap:5,fontFamily:ff,fontSize:12.5,fontWeight:500,lineHeight:1}}>← Back</button>
           <div style={{fontWeight:700,fontSize:16,fontFamily:ff,color:C.warm}}>{loc?.name}</div>
+          {isParent&&<Tag color="gold">Parent Rollup</Tag>}
         </div>
         {rows.length===0
           ?<div style={{textAlign:'center',padding:'50px 0',color:C.warmL,fontFamily:ff}}><div style={{fontWeight:600}}>No items in this location</div></div>
           :<div style={{background:'#fff',borderRadius:14,boxShadow:'0 1px 6px rgba(0,0,0,.05)',overflow:'hidden'}}>
-            <div style={{display:'grid',gridTemplateColumns:'1fr auto auto',borderBottom:`2px solid ${C.beige}`}}>
+            <div style={{display:'grid',gridTemplateColumns:isParent?'1fr 1fr auto auto':'1fr auto auto',borderBottom:`2px solid ${C.beige}`}}>
               <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff}}>Catalog Item</div>
+              {isParent&&<div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff}}>Child Location</div>}
               <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff,textAlign:'right'}}>Qty</div>
               <div style={{padding:'10px 16px',fontSize:11.5,fontWeight:700,color:C.warmL,letterSpacing:.5,textTransform:'uppercase',fontFamily:ff,minWidth:60}}>UOM</div>
             </div>
             {rows.map((r,i)=>(
-              <div key={r.id} style={{display:'grid',gridTemplateColumns:'1fr auto auto',borderBottom:i<rows.length-1?`1px solid ${C.beige}`:'none',background:r.low?C.redL:'#fff'}}>
+              <div key={r.id} style={{display:'grid',gridTemplateColumns:isParent?'1fr 1fr auto auto':'1fr auto auto',borderBottom:i<rows.length-1?`1px solid ${C.beige}`:'none',background:r.low?C.redL:'#fff'}}>
                 <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:600,fontFamily:ff,color:r.low?C.red:C.warm,display:'flex',alignItems:'center',gap:8}}>
                   {r.name}
                   {r.low&&<Tag color="red">low</Tag>}
                 </div>
+                {isParent&&<div style={{padding:'12px 16px',fontSize:13,fontFamily:ff,color:C.warmM}}>{r.childName}</div>}
                 <div style={{padding:'12px 16px',fontSize:13.5,fontWeight:700,fontFamily:ff,color:r.low?C.red:C.warm,textAlign:'right'}}>{r.qty}</div>
                 <div style={{padding:'12px 16px',fontSize:13,fontFamily:ff,color:C.warmM,minWidth:60}}>{r.uom}</div>
               </div>
@@ -1001,7 +1189,7 @@ function LocationsView({data,refresh,openModal,user}){
         const isParent=kind==='parent';
         const isChild=kind==='child';
         const isStandalone=kind==='standalone';
-        const isClickable=isChild||isStandalone;
+        const isClickable=isChild||isStandalone||isParent;
 
         const children=isParent?getChildren(loc.id):[];
         const childIds=children.map(c=>c.id);
@@ -1217,14 +1405,24 @@ function ConsumeModal({stockId,locId,data,refresh,onClose,user}){
   const s=data.stock.find(x=>x.id===selId);
   const it=data.items.find(i=>i.id===s?.iid);
   const lc=data.locations.find(l=>l.id===s?.lid);
+  const conv=getUnitConversion(data.settings,it?.id);
+  const [useAltUnit,setUseAltUnit]=useState(false);
   const [amt,setAmt]=useState('1');
   const [err,setErr]=useState('');
   const [done,setDone]=useState(false);
+  const amountNum=parseFloat(amt);
+  const baseAmount=useAltUnit&&conv?amountNum*conv.factor:amountNum;
+  const availableInSelectedUnit=useAltUnit&&conv?Number(s?.qty||0)/conv.factor:Number(s?.qty||0);
+
   const go=async()=>{
-    const n=parseInt(amt);
-    if(!n||n<=0){setErr('Enter a positive amount');return;}
-    if(n>s.qty){setErr(`Only ${s.qty} available`);return;}
-    try{await api.consume(s.id,n,{userId:user?.id,userName:user?.name});await refresh();setDone(true);}
+    if(!Number.isFinite(amountNum)||amountNum<=0){setErr('Enter a positive amount');return;}
+    if(!Number.isFinite(baseAmount)||baseAmount<=0){setErr('Invalid conversion amount');return;}
+    if(!Number.isInteger(baseAmount)){
+      setErr(`Use a quantity that converts to whole ${it.uom} units`);
+      return;
+    }
+    if(baseAmount>s.qty){setErr(`Only ${fmtQty(availableInSelectedUnit)} ${useAltUnit&&conv?conv.altUnit:it.uom} available`);return;}
+    try{await api.consume(s.id,baseAmount,{userId:user?.id,userName:user?.name});await refresh();setDone(true);}
     catch(e){setErr(e.message);}
   };
   if(done){
@@ -1233,7 +1431,10 @@ function ConsumeModal({stockId,locId,data,refresh,onClose,user}){
         <div style={{textAlign:'center',padding:'20px 0'}}>
           <div style={{width:56,height:56,background:C.greenL,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',color:C.green,fontSize:22,lineHeight:0}}>{Ic.check}</div>
           <div style={{fontWeight:700,fontSize:16,color:C.green,fontFamily:ff}}>Recorded</div>
-          <div style={{color:C.warmM,fontSize:13,marginTop:6}}>{amt} {it.uom} of {it.name} taken from {lc?.name}</div>
+          <div style={{color:C.warmM,fontSize:13,marginTop:6}}>
+            {fmtQty(amountNum)} {useAltUnit&&conv?conv.altUnit:it.uom} of {it.name} taken from {lc?.name}
+            {useAltUnit&&conv&&<span style={{display:'block',marginTop:4,fontSize:12,color:C.warmL}}>(= {fmtQty(baseAmount)} {it.uom})</span>}
+          </div>
           <div style={{marginTop:20}}><Btn onClick={onClose} variant="dark" size="lg">Done</Btn></div>
         </div>
       </Sheet>
@@ -1253,13 +1454,39 @@ function ConsumeModal({stockId,locId,data,refresh,onClose,user}){
     <Sheet title="Record Consumption" onClose={onClose}>
       <div style={{textAlign:'center',marginBottom:20}}>
         <div style={{fontWeight:700,fontSize:15,color:C.warm,fontFamily:ff}}>{it.name}</div>
-        <div style={{color:C.warmM,fontSize:13,marginTop:3}}>{lc?.name} · {s.qty} {it.uom} available</div>
+        <div style={{color:C.warmM,fontSize:13,marginTop:3}}>
+          {lc?.name} · {s.qty} {it.uom} available
+          {conv&&<span style={{display:'block',marginTop:4,fontSize:12,color:C.warmL}}>~{fmtQty(s.qty/conv.factor)} {conv.altUnit}</span>}
+        </div>
       </div>
+      {conv&&(
+        <div style={{display:'flex',gap:8,marginBottom:12}}>
+          <button
+            onClick={()=>setUseAltUnit(false)}
+            style={{flex:1,padding:'8px 10px',borderRadius:10,border:`1px solid ${!useAltUnit?C.gold:C.beigeD}`,background:!useAltUnit?C.goldP:'#fff',color:!useAltUnit?C.warm:C.warmM,fontFamily:ff,fontSize:12.5,fontWeight:600,cursor:'pointer'}}
+          >
+            Use {it.uom}
+          </button>
+          <button
+            onClick={()=>setUseAltUnit(true)}
+            style={{flex:1,padding:'8px 10px',borderRadius:10,border:`1px solid ${useAltUnit?C.gold:C.beigeD}`,background:useAltUnit?C.goldP:'#fff',color:useAltUnit?C.warm:C.warmM,fontFamily:ff,fontSize:12.5,fontWeight:600,cursor:'pointer'}}
+          >
+            Use {conv.altUnit}
+          </button>
+        </div>
+      )}
       <div style={{marginBottom:8}}>
         <div style={{fontSize:11.5,fontWeight:600,color:C.warmM,marginBottom:6,letterSpacing:.4,textTransform:'uppercase',fontFamily:ff}}>How many did you take?</div>
-        <input autoFocus type="number" inputMode="numeric" value={amt} onChange={e=>setAmt(e.target.value)} min="1" max={s.qty}
+        <input autoFocus type="number" inputMode="decimal" value={amt} onChange={e=>setAmt(e.target.value)} min="1" step="1"
           style={{width:'100%',boxSizing:'border-box',padding:'14px',fontSize:28,fontWeight:700,textAlign:'center',fontFamily:fs,borderRadius:12,border:`2px solid ${C.gold}`,background:'#fff',color:C.warm,outline:'none'}}/>
-        <div style={{fontSize:12,color:C.warmL,marginTop:6,textAlign:'center',fontFamily:ff}}>Will leave {Math.max(0,(s.qty-(parseInt(amt)||0)))} {it.uom} in {lc?.name}</div>
+        <div style={{fontSize:12,color:C.warmL,marginTop:6,textAlign:'center',fontFamily:ff}}>
+          Will leave {Math.max(0,s.qty-(Number.isFinite(baseAmount)?baseAmount:0))} {it.uom} in {lc?.name}
+        </div>
+        {conv&&useAltUnit&&(
+          <div style={{fontSize:11.5,color:C.warmL,marginTop:3,textAlign:'center',fontFamily:ff}}>
+            1 {conv.altUnit} = {fmtQty(conv.factor)} {it.uom}
+          </div>
+        )}
       </div>
       <ErrBox msg={err}/>
       <Btn onClick={go} variant="dark" size="lg">☕ Record Consumption</Btn>
