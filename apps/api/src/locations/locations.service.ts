@@ -5,6 +5,12 @@ import { PrismaService } from '../core/prisma/prisma.service';
 export class LocationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async list() {
+    return this.prisma.location.findMany({
+      orderBy: { name: 'asc' },
+    });
+  }
+
   async create(name: string, parentId?: string | null) {
     const exists = await this.prisma.location.findFirst({ where: { name } });
     if (exists) throw new BadRequestException('Location already exists');
@@ -71,10 +77,10 @@ export class LocationsService {
   }
 
   async remove(id: string) {
-    const hasStock = await this.prisma.stock.findFirst({ where: { lid: id } });
-    if (hasStock) throw new BadRequestException('Cannot remove a location that has stock');
     const loc = await this.prisma.location.findUnique({ where: { id } });
     if (!loc) throw new NotFoundException();
+    const hasStock = await this.prisma.stock.findFirst({ where: { lid: id } });
+    if (hasStock) throw new BadRequestException('Cannot remove a location that has stock');
 
     await this.prisma.location.delete({ where: { id } });
     return { ok: true };

@@ -22,7 +22,7 @@ import { GenerateReorderProcessor } from './processors/generate-reorder.processo
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         connection: {
-          url: config.getOrThrow<string>('REDIS_URL'),
+          url: config.get<string>('REDIS_URL') ?? 'redis://localhost:6379',
         },
         defaultJobOptions: {
           attempts: 3,                    // retry failed jobs 3 times

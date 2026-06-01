@@ -23,8 +23,10 @@ export class ReorderService {
     user: UserContext,
     windowDays: number = 7,
   ) {
+    const parentLocationId = await this.resolveParentLocationId(locationId);
+
     const jobData: GenerateReorderJobData = {
-      locationId,
+      locationId: parentLocationId,
       organizationId: user.organizationId,
       triggerType: 'MANUAL',
       windowDays,
@@ -46,9 +48,11 @@ export class ReorderService {
     organizationId: number,
     pagination: PaginationDto,
   ) {
+    const parentLocationId = await this.resolveParentLocationId(locationId);
+
     const [items, total] = await Promise.all([
       this.prisma.reorderSuggestion.findMany({
-        where: { locationId, organizationId },
+        where: { locationId: parentLocationId, organizationId },
         orderBy: { generatedAt: 'desc' },
         include: {
           _count: { select: { items: true } },
@@ -60,7 +64,7 @@ export class ReorderService {
         skip: pagination.skip,
         take: pagination.limit,
       }),
-      this.prisma.reorderSuggestion.count({ where: { locationId, organizationId } }),
+      this.prisma.reorderSuggestion.count({ where: { locationId: parentLocationId, organizationId } }),
     ]);
 
     // Annotate each suggestion with urgent item count
@@ -98,8 +102,10 @@ export class ReorderService {
   }
 
   async getLatestPending(locationId: string, organizationId: number) {
+    const parentLocationId = await this.resolveParentLocationId(locationId);
+
     const suggestion = await this.prisma.reorderSuggestion.findFirst({
-      where: { locationId, organizationId, status: 'PENDING' },
+      where: { locationId: parentLocationId, organizationId, status: 'PENDING' },
       orderBy: { generatedAt: 'desc' },
       include: {
         items: {
@@ -141,12 +147,14 @@ export class ReorderService {
   // ─── stock summary (for dashboard banner) ─────────────────────────────────
 
   async getStockAlerts(locationId: string, organizationId: number) {
+    const parentLocationId = await this.resolveParentLocationId(locationId);
+
     // Get the latest pending suggestion and count items by urgency
     const latest = await this.prisma.reorderSuggestion.findFirst({
-      where: { locationId, organizationId, status: 'PENDING' },
+      where: { locationId: parentLocationId, organizationId, status: 'PENDING' },
       orderBy: { generatedAt: 'desc' },
       include: {
-        _count: true,
+        _count: { select: { items: true } },
         items: {
           select: { urgency: true },
         },
@@ -172,5 +180,38 @@ export class ReorderService {
       planAhead: urgencyCounts['PLAN_AHEAD'] ?? 0,
       total: latest._count.items,
     });
+  }
+
+  private async resolveParentLocationId(locationId: string): Promise<string> {
+    let current = await this.prisma.location.findUnique({
+      where: { id: locationId },
+      select: { id: true, parentId: true },
+    });
+
+    if (!current) {
+      return locationId;
+    }
+
+    const visited = new Set<string>();
+
+    while (current.parentId) {
+      if (visited.has(current.id)) {
+        break;
+      }
+      visited.add(current.id);
+
+      const parent = await this.prisma.location.findUnique({
+        where: { id: current.parentId },
+        select: { id: true, parentId: true },
+      });
+
+      if (!parent) {
+        break;
+      }
+
+      current = parent;
+    }
+
+    return current.id;
   }
 }

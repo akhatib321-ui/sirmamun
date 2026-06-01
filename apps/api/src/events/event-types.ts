@@ -5,7 +5,7 @@
 export const Events = {
   // Sales ingestion pipeline
   SALES_REPORT_IMPORTED:   'sales.report.imported',    // CSV uploaded, raw data saved
-  SALES_REPORT_MATCHED:    'sales.report.matched',     // AI matching complete
+  SALES_REPORT_MATCHED:    'sales.report.matched',     // sales matching complete
   SALES_ITEMS_UNMATCHED:   'sales.items.unmatched',    // items need manual review
 
   // Supplier orders

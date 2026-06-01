@@ -13,7 +13,7 @@ import { PaginationDto } from '../../../shared/pagination.dto';
 import { UpdateSuggestionDto } from './dto/update-suggestion.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('api/v1/inventory/reorder')
+@Controller('inventory/reorder')
 export class ReorderController {
   constructor(private readonly service: ReorderService) {}
 

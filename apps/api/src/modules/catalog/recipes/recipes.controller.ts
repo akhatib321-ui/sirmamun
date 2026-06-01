@@ -14,7 +14,7 @@ import { CreateRecipeDto } from './dto/create-recipe.dto';
 import { AddRecipeIngredientDto } from './dto/add-recipe-ingredient.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('api/v1/catalog/recipes')
+@Controller('catalog/recipes')
 export class RecipesController {
   constructor(private readonly service: RecipesService) {}
 
@@ -33,7 +33,6 @@ export class RecipesController {
     return this.service.findOne(id, user.organizationId);
   }
 
-  @Roles('admin')
   @Post()
   create(@Body() dto: CreateRecipeDto, @CurrentUser() user: UserContext) {
     return this.service.create(dto, user);

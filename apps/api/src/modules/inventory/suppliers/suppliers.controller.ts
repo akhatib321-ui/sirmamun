@@ -12,7 +12,7 @@ import { PaginationDto } from '../../../shared/pagination.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('api/v1/inventory/suppliers')
+@Controller('inventory/suppliers')
 export class SuppliersController {
   constructor(private readonly service: SuppliersService) {}
 

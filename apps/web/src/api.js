@@ -20,6 +20,14 @@ export function authHeaders() {
   };
 }
 
+function authToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function clampPageLimit(limit, max = 100) {
+  return Math.min(limit, max);
+}
+
 async function req(method, path, body) {
   const res = await fetch(`${BASE}${path}`, {
     method,
@@ -98,4 +106,57 @@ export const api = {
 
   // ── Settings ──────────────────────────────────────────────
   updateSettings: (config)                           => req('PUT',    '/settings',         config),
+
+  // ── Module 2: Inventory Frontend ─────────────────────────
+  getLocations: ()                                   => req('GET',    '/locations'),
+  getSuppliers: (page = 1, limit = 50)              => req('GET',    `/inventory/suppliers?page=${page}&limit=${limit}`),
+  createSupplier: (dto)                              => req('POST',   '/inventory/suppliers', dto),
+
+  getIngredients: (page = 1, limit = 50)             => req('GET',    `/catalog/ingredients?page=${page}&limit=${clampPageLimit(limit)}`),
+  createIngredient: (dto)                            => req('POST',   '/catalog/ingredients', dto),
+  addIngredientCost: (ingredientId, locationId, dto) => req('POST',   `/catalog/ingredients/${ingredientId}/costs/${locationId}`, dto),
+
+  getRecipes: (locationId, page = 1, limit = 100)    => req('GET',    `/catalog/recipes/${locationId}?page=${page}&limit=${clampPageLimit(limit)}`),
+  createRecipe: (dto)                                => req('POST',   '/catalog/recipes', dto),
+  updateRecipe: (id, dto)                            => req('PATCH',  `/catalog/recipes/detail/${id}`, dto),
+  addRecipeIngredient: (recipeId, dto)               => req('POST',   `/catalog/recipes/detail/${recipeId}/ingredients`, dto),
+  removeRecipeIngredient: (recipeId, ingredientId)   => req('DELETE', `/catalog/recipes/detail/${recipeId}/ingredients/${ingredientId}`),
+
+  generateReorder: (locationId, windowDays = 7)      => req('POST',   `/inventory/reorder/generate/${locationId}?windowDays=${windowDays}`),
+  getReorderAlerts: (locationId)                     => req('GET',    `/inventory/reorder/alerts/${locationId}`),
+  getReorderPending: (locationId)                    => req('GET',    `/inventory/reorder/pending/${locationId}`),
+  getReorderHistory: (locationId, page = 1, limit = 20) => req('GET', `/inventory/reorder/history/${locationId}?page=${page}&limit=${limit}`),
+  getReorderById: (id)                               => req('GET',    `/inventory/reorder/${id}`),
+
+  getSalesReports: (locationId, page = 1, limit = 25) => req('GET',   `/inventory/sales/${locationId}?page=${page}&limit=${limit}`),
+  getUnmatchedItems: (reportId)                      => req('GET',    `/inventory/sales/reports/${reportId}/unmatched`),
+  manualMatch: (itemId, recipeId)                    => req('PATCH',  `/inventory/sales/items/${itemId}/match`, { recipeId }),
+
+  uploadSalesCsv: async (locationId, reportDate, file) => {
+    const token = authToken();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch(`${BASE}/inventory/sales/import/${locationId}?reportDate=${encodeURIComponent(reportDate)}`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    });
+
+    if (res.status === 401) {
+      clearAuth();
+      const err = new Error('Unauthorized');
+      err.status = 401;
+      throw err;
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: 'CSV upload failed' }));
+      const e = new Error(err.message ?? 'CSV upload failed');
+      e.status = res.status;
+      throw e;
+    }
+
+    return res.json();
+  },
 };

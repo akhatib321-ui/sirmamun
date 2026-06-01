@@ -14,7 +14,7 @@ import { CreateIngredientDto } from './dto/create-ingredient.dto';
 import { AddIngredientCostDto } from './dto/add-ingredient-cost.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('api/v1/catalog/ingredients')
+@Controller('catalog/ingredients')
 export class IngredientsController {
   constructor(private readonly service: IngredientsService) {}
 
@@ -31,7 +31,6 @@ export class IngredientsController {
     return this.service.findOne(id, user.organizationId);
   }
 
-  @Roles('admin')
   @Post()
   create(@Body() dto: CreateIngredientDto, @CurrentUser() user: UserContext) {
     return this.service.create(dto, user);

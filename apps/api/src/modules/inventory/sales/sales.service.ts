@@ -42,6 +42,8 @@ export class SalesService {
     reportDate: string,
     user: UserContext,
   ) {
+    const parentLocationId = await this.resolveParentLocationId(locationId);
+
     // Parse the CSV
     let rows: Record<string, string>[];
     try {
@@ -72,7 +74,7 @@ export class SalesService {
     // Create the report record
     const report = await this.prisma.salesReport.create({
       data: {
-        locationId,
+        locationId: parentLocationId,
         organizationId: user.organizationId,
         reportDate: new Date(reportDate),
         periodStart,
@@ -99,13 +101,13 @@ export class SalesService {
     });
 
     this.logger.log(
-      `Sales report ${report.id} created for ${locationId} on ${reportDate} — ${rows.length} items`,
+      `Sales report ${report.id} created for ${parentLocationId} on ${reportDate} — ${rows.length} items`,
     );
 
     // Emit event and queue matching job
     this.eventEmitter.emit(Events.SALES_REPORT_IMPORTED, {
       salesReportId: report.id,
-      locationId,
+      locationId: parentLocationId,
       organizationId: user.organizationId,
     });
 
@@ -126,9 +128,11 @@ export class SalesService {
   // ─── queries ──────────────────────────────────────────────────────────────
 
   async findAll(locationId: string, organizationId: number, pagination: PaginationDto) {
+    const parentLocationId = await this.resolveParentLocationId(locationId);
+
     const [items, total] = await Promise.all([
       this.prisma.salesReport.findMany({
-        where: { locationId, organizationId },
+        where: { locationId: parentLocationId, organizationId },
         orderBy: { reportDate: 'desc' },
         include: {
           _count: {
@@ -140,7 +144,7 @@ export class SalesService {
         skip: pagination.skip,
         take: pagination.limit,
       }),
-      this.prisma.salesReport.count({ where: { locationId, organizationId } }),
+      this.prisma.salesReport.count({ where: { locationId: parentLocationId, organizationId } }),
     ]);
     return paginated(items, total, pagination.page, pagination.limit);
   }
@@ -220,5 +224,38 @@ export class SalesService {
     }
 
     return ok({ matched: true, remainingUnmatched: remaining });
+  }
+
+  private async resolveParentLocationId(locationId: string): Promise<string> {
+    let current = await this.prisma.location.findUnique({
+      where: { id: locationId },
+      select: { id: true, parentId: true },
+    });
+
+    if (!current) {
+      return locationId;
+    }
+
+    const visited = new Set<string>();
+
+    while (current.parentId) {
+      if (visited.has(current.id)) {
+        break;
+      }
+      visited.add(current.id);
+
+      const parent = await this.prisma.location.findUnique({
+        where: { id: current.parentId },
+        select: { id: true, parentId: true },
+      });
+
+      if (!parent) {
+        break;
+      }
+
+      current = parent;
+    }
+
+    return current.id;
   }
 }

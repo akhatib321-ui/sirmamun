@@ -15,7 +15,7 @@ import { PaginationDto } from '../../../shared/pagination.dto';
 import { ManualMatchDto } from './dto/manual-match.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Controller('api/v1/inventory/sales')
+@Controller('inventory/sales')
 export class SalesController {
   constructor(private readonly service: SalesService) {}
 

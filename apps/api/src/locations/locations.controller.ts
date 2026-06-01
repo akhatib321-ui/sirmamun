@@ -1,10 +1,15 @@
-import { Controller, Post, Delete, Param, Body, Put } from '@nestjs/common';
+import { Controller, Post, Delete, Param, Body, Put, Get } from '@nestjs/common';
 import { Roles } from '../core/auth/decorators/roles.decorator';
 import { LocationsService } from './locations.service';
 
 @Controller('locations')
 export class LocationsController {
   constructor(private svc: LocationsService) {}
+
+  @Get()
+  list() {
+    return this.svc.list();
+  }
 
   @Roles('admin')
   @Post()
