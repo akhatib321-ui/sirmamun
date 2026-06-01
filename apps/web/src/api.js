@@ -122,6 +122,35 @@ export const api = {
   addRecipeIngredient: (recipeId, dto)               => req('POST',   `/catalog/recipes/detail/${recipeId}/ingredients`, dto),
   removeRecipeIngredient: (recipeId, ingredientId)   => req('DELETE', `/catalog/recipes/detail/${recipeId}/ingredients/${ingredientId}`),
 
+  importCatalogJson: (locationId, payload)           => req('POST',   `/catalog/import/json/${locationId}`, payload),
+  importIngredientsCsv: async (locationId, file) => {
+    const token = authToken();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch(`${BASE}/catalog/import/ingredients-csv/${locationId}`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: formData,
+    });
+
+    if (res.status === 401) {
+      clearAuth();
+      const err = new Error('Unauthorized');
+      err.status = 401;
+      throw err;
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: 'CSV upload failed' }));
+      const e = new Error(err.message ?? 'CSV upload failed');
+      e.status = res.status;
+      throw e;
+    }
+
+    return res.json();
+  },
+
   generateReorder: (locationId, windowDays = 7)      => req('POST',   `/inventory/reorder/generate/${locationId}?windowDays=${windowDays}`),
   getReorderAlerts: (locationId)                     => req('GET',    `/inventory/reorder/alerts/${locationId}`),
   getReorderPending: (locationId)                    => req('GET',    `/inventory/reorder/pending/${locationId}`),

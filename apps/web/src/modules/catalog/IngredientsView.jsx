@@ -19,7 +19,7 @@ const isAmazon = ing => latestSource(ing).toLowerCase().includes('amazon');
 
 // ─── styles ──────────────────────────────────────────────────────────────────
 const s = {
-  page:   { padding: '20px 24px', background: C.cream, minHeight: '100%' },
+  page:   { padding: '20px 24px', background: C.cream, minHeight: '100%', minWidth: 0 },
   toolbar:{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' },
   search: {
     fontFamily: 'DM Sans', fontSize: 14, padding: '7px 12px',
@@ -32,7 +32,7 @@ const s = {
     borderRadius: 50, background: active ? C.ink : C.white,
     color: active ? C.gold : C.textSecond, cursor: 'pointer',
   }),
-  tableWrap: { ...ui.card, overflow: 'hidden' },
+  tableWrap: { ...ui.card, overflow: 'hidden', minWidth: 0 },
   table:    { width: '100%', borderCollapse: 'collapse', minWidth: 780 },
   th: {
     padding: '8px 12px', fontFamily: 'DM Sans', fontSize: 10, fontWeight: 700,
@@ -74,6 +74,7 @@ const s = {
     gridTemplateColumns: '2fr .65fr .8fr .75fr .9fr 1fr auto',
     gap: 8, alignItems: 'end', padding: '12px 14px',
     background: C.cream, borderTop: `1px solid ${C.beigeLight}`,
+    minWidth: 760,
   },
   addField: { display: 'flex', flexDirection: 'column', gap: 3 },
   addLabel: {
@@ -416,26 +417,28 @@ export default function IngredientsView({ locationId, user }) {
         </div>
 
         {/* Add ingredient form */}
-        <div style={s.addForm}>
-          <div style={s.addField}>
-            <span style={s.addLabel}>Ingredient name</span>
-            <input style={s.addInput} value={newIng.name} onChange={e => setNewIng(p => ({ ...p, name: e.target.value }))}
-              placeholder="e.g. Oatly Oat Milk" />
+        <div style={{ overflowX: 'auto' }}>
+          <div style={s.addForm}>
+            <div style={s.addField}>
+              <span style={s.addLabel}>Ingredient name</span>
+              <input style={s.addInput} value={newIng.name} onChange={e => setNewIng(p => ({ ...p, name: e.target.value }))}
+                placeholder="e.g. Oatly Oat Milk" />
+            </div>
+            <div style={s.addField}>
+              <span style={s.addLabel}>Buy unit</span>
+              <select style={s.addSelect} value={newIng.unit} onChange={e => setNewIng(p => ({ ...p, unit: e.target.value }))}>
+                {ALL_UNITS.map(u => <option key={u} value={u}>{u} — {UOM_TABLE[u]?.label}</option>)}
+              </select>
+            </div>
+            <div style={{ ...s.addField, gridColumn: 'span 4' }}>
+              <span style={s.addLabel}>Notes / source</span>
+              <input style={s.addInput} value={newIng.notes} onChange={e => setNewIng(p => ({ ...p, notes: e.target.value }))}
+                placeholder="e.g. Amazon Fresh, 64oz carton" />
+            </div>
+            <button style={{ ...ui.button, alignSelf: 'flex-end' }} onClick={handleAdd} disabled={adding}>
+              {adding ? '…' : '+ Add'}
+            </button>
           </div>
-          <div style={s.addField}>
-            <span style={s.addLabel}>Buy unit</span>
-            <select style={s.addSelect} value={newIng.unit} onChange={e => setNewIng(p => ({ ...p, unit: e.target.value }))}>
-              {ALL_UNITS.map(u => <option key={u} value={u}>{u} — {UOM_TABLE[u]?.label}</option>)}
-            </select>
-          </div>
-          <div style={{ ...s.addField, gridColumn: 'span 4' }}>
-            <span style={s.addLabel}>Notes / source</span>
-            <input style={s.addInput} value={newIng.notes} onChange={e => setNewIng(p => ({ ...p, notes: e.target.value }))}
-              placeholder="e.g. Amazon Fresh, 64oz carton" />
-          </div>
-          <button style={{ ...ui.button, alignSelf: 'flex-end' }} onClick={handleAdd} disabled={adding}>
-            {adding ? '…' : '+ Add'}
-          </button>
         </div>
         <div style={s.hint}>
           After adding an ingredient, click <strong>+ Cost</strong> on the row to enter invoice pricing.

@@ -4,6 +4,7 @@ import IngredientsView from './IngredientsView.jsx';
 import RecipesView from './RecipesView.jsx';
 import MarginsView from './MarginsView.jsx';
 import UomView from './UomView.jsx';
+import ImportModal from './ImportModal.jsx';
 import { api } from '../../api.js';
 import { tokens as C } from '../../shared/styles.js';
 
@@ -40,6 +41,8 @@ export default function CatalogShell({ subView: initialSubView, onNavigate }) {
   const [subView,    setSubView]   = useState(initialSubView ?? 'ingredients');
   const [locations,  setLocations] = useState([]);
   const [locationId, setLocId]     = useState('');
+  const [showImport, setShowImport] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     api.getLocations()
@@ -82,15 +85,45 @@ export default function CatalogShell({ subView: initialSubView, onNavigate }) {
         <div style={{ fontFamily: 'DM Sans', fontSize: 12, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: C.textMuted }}>
           Catalog Views
         </div>
-        {locationSelector}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {locationSelector}
+          <button
+            style={{
+              fontFamily: 'DM Sans',
+              fontSize: 12,
+              padding: '5px 14px',
+              border: `1px solid ${C.gold}`,
+              borderRadius: 50,
+              background: 'transparent',
+              color: C.gold,
+              cursor: 'pointer',
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              fontWeight: 700,
+            }}
+            onClick={() => setShowImport(true)}
+          >
+            Import
+          </button>
+        </div>
       </div>
       <TabBar active={subView} onChange={handleTabChange} />
       <div style={{ flex: 1, overflowY: subView === 'recipes' ? 'hidden' : 'auto' }}>
-        {subView === 'ingredients' && <IngredientsView locationId={locationId} />}
-        {subView === 'recipes'     && <RecipesView     locationId={locationId} />}
-        {subView === 'margins'     && <MarginsView     locationId={locationId} />}
+        {subView === 'ingredients' && <IngredientsView key={`ingredients-${refreshKey}`} locationId={locationId} />}
+        {subView === 'recipes'     && <RecipesView     key={`recipes-${refreshKey}`} locationId={locationId} />}
+        {subView === 'margins'     && <MarginsView     key={`margins-${refreshKey}`} locationId={locationId} />}
         {subView === 'uom'         && <UomView />}
       </div>
+      {showImport && locationId && (
+        <ImportModal
+          locationId={locationId}
+          onClose={() => setShowImport(false)}
+          onDone={() => {
+            setShowImport(false);
+            setRefreshKey((k) => k + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

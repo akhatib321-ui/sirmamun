@@ -10,7 +10,11 @@ const subViewTitles = {
 };
 
 export default function Header({ module, subView, user, onLogout }) {
-  const moduleTitle = module ? module.charAt(0).toUpperCase() + module.slice(1) : 'Platform';
+  const moduleTitles = {
+    orders: 'Smart Orders',
+    catalog: 'Menu & Costs',
+  };
+  const moduleTitle = moduleTitles[module] || (module ? module.charAt(0).toUpperCase() + module.slice(1) : 'Platform');
   const title = subViewTitles[subView] || moduleTitle;
 
   return (

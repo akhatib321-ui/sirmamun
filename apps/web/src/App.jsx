@@ -1545,9 +1545,10 @@ function Module2Placeholder({label}){
 }
 
 function Module2Workspace({user,onLogout,onExit}){
-  const [module,setModule]=useState('inventory');
+  const [module,setModule]=useState('orders');
   const [subView,setSubView]=useState('reorder');
   const [isMobile,setIsMobile]=useState(()=>window.innerWidth<960);
+  const [sidebarOpen,setSidebarOpen]=useState(false);
 
   useEffect(()=>{
     function onResize(){
@@ -1563,6 +1564,9 @@ function Module2Workspace({user,onLogout,onExit}){
       return;
     }
     setModule(nextModule);
+    if(isMobile){
+      setSidebarOpen(false);
+    }
     if(nextSubView){
       setSubView(nextSubView);
       return;
@@ -1575,16 +1579,50 @@ function Module2Workspace({user,onLogout,onExit}){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'12px 18px',borderBottom:`1px solid ${tokens.colors.border}`,background:'rgba(255,255,255,0.82)',backdropFilter:'blur(6px)'}}>
         <div>
           <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',color:tokens.colors.muted,fontFamily:tokens.fonts.body}}>Madam Jaz</div>
-          <div style={{fontFamily:tokens.fonts.heading,fontSize:24,lineHeight:1.1}}>Catalog + Inventory Workspace</div>
+          <div style={{fontFamily:tokens.fonts.heading,fontSize:24,lineHeight:1.1}}>Catalog + Smart Orders Workspace</div>
         </div>
         <button onClick={onExit} style={{border:`1px solid ${tokens.colors.border}`,background:'#fff',borderRadius:10,padding:'9px 12px',cursor:'pointer',fontWeight:600,fontFamily:tokens.fonts.body,color:tokens.colors.ink}}>Back to SirMamun</button>
       </div>
-      <div style={{...ui.page,display:'flex',flexDirection:isMobile?'column':'row',minHeight:'calc(100vh - 186px)'}}>
-        <Sidebar module={module} subView={subView} onNavigate={handleNavigate} isMobile={isMobile} />
+      <div style={{...ui.page,display:'flex',flexDirection:isMobile?'column':'row',minHeight:'calc(100vh - 186px)',position:'relative'}}>
+        {!isMobile && <Sidebar module={module} subView={subView} onNavigate={handleNavigate} isMobile={false} />}
+        {isMobile && (
+          <>
+            <div style={{height:48,background:'#16121a',display:'flex',alignItems:'center',padding:'0 14px',gap:12,borderBottom:`1px solid ${tokens.colors.border}`}}>
+              <button
+                onClick={() => setSidebarOpen(true)}
+                style={{
+                  background:'none',
+                  border:'none',
+                  cursor:'pointer',
+                  color:tokens.gold,
+                  fontSize:22,
+                  padding:4,
+                  lineHeight:1,
+                }}
+                aria-label="Open navigation"
+              >
+                ☰
+              </button>
+              <span style={{fontFamily:tokens.fonts.heading,fontSize:18,color:tokens.gold,fontWeight:700}}>Madam Jaz</span>
+            </div>
+
+            {sidebarOpen && (
+              <>
+                <div
+                  onClick={() => setSidebarOpen(false)}
+                  style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:60}}
+                />
+                <div style={{position:'fixed',left:0,top:0,bottom:0,zIndex:61,maxWidth:'82vw'}}>
+                  <Sidebar module={module} subView={subView} onNavigate={handleNavigate} isMobile={false} />
+                </div>
+              </>
+            )}
+          </>
+        )}
         <div style={{flex:1,overflow:'hidden',minWidth:0,display:'flex',flexDirection:'column'}}>
           <Header module={module} subView={subView} user={user} onLogout={onLogout} />
           {module==='catalog'&&<CatalogShell subView={subView} onNavigate={handleNavigate} user={user} onLogout={onLogout} />}
-          {module==='inventory'&&<InventoryShell subView={subView} setSubView={setSubView} user={user} />}
+          {module==='orders'&&<InventoryShell subView={subView} setSubView={setSubView} user={user} />}
           {module==='scheduling'&&<Module2Placeholder label="Scheduling" />}
           {module==='analytics'&&<Module2Placeholder label="Analytics" />}
         </div>
@@ -1688,7 +1726,7 @@ export default function App(){
   const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
   const tabTitles={dashboard:'Dashboard',inventory:'Inventory',catalog:'Item Catalog',reorder:'Reorder List',locations:'Locations',settings:'Settings',module2:'Madam Jaz'};
   return(
-    <div className="app-shell" style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,maxWidth:'var(--app-w)',margin:'0 auto',paddingBottom:74,position:'relative'}}>
+    <div className="app-shell" style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,width:'100%',paddingBottom:74,position:'relative'}}>
       {/* Logo watermark */}
       <div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',width:320,maxWidth:'85vw',pointerEvents:'none',zIndex:0,opacity:.045}}>
         <img src={LOGO} alt="" style={{width:'100%',filter:'sepia(1) saturate(3) hue-rotate(5deg)'}}/>
@@ -1717,7 +1755,7 @@ export default function App(){
       {tab==='settings'&&<SettingsView user={user} data={data} refresh={refresh}/>}
       {tab==='module2'&&<Module2Workspace user={user} onLogout={logout} onExit={()=>setTab('dashboard')} />}
       </div>
-      <nav style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:'var(--app-w)',background:C.black,display:'flex',borderTop:'1px solid #1E1A15',paddingBottom:'env(safe-area-inset-bottom,0px)',zIndex:100}}>
+      <nav style={{position:'fixed',bottom:0,left:0,right:0,width:'100%',background:C.black,display:'flex',borderTop:'1px solid #1E1A15',paddingBottom:'env(safe-area-inset-bottom,0px)',zIndex:100}}>
         {TABS.map(({key,label,icon})=>(
           <button key={key} onClick={()=>setTab(key)} style={{flex:1,padding:'10px 0 12px',background:'none',border:'none',display:'flex',flexDirection:'column',alignItems:'center',gap:3,cursor:'pointer',color:tab===key?C.gold:C.warmM,transition:'color .2s',fontFamily:ff}}>
             <div style={{lineHeight:0,position:'relative'}}>

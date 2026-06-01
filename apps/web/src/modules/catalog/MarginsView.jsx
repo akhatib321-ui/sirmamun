@@ -9,7 +9,7 @@ const fmt2 = n => `$${Number(n).toFixed(2)}`;
 const fmtPct = p => p === null ? '—' : `${p.toFixed(1)}%`;
 
 const s = {
-  page: { padding: '20px 24px', background: C.cream, minHeight: '100%' },
+  page: { padding: '20px 24px', background: C.cream, minHeight: '100%', minWidth: 0 },
   toolbar: { display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' },
   catSelect: {
     fontFamily: 'DM Sans', fontSize: 13, padding: '6px 12px',
@@ -21,7 +21,7 @@ const s = {
     padding: '2px 9px', borderRadius: 100, fontSize: 11, fontWeight: 700,
     background: bg, color, fontFamily: "'Courier New',monospace",
   }),
-  tableWrap: { ...ui.card, overflow: 'hidden' },
+  tableWrap: { ...ui.card, overflow: 'hidden', minWidth: 0 },
   th: {
     padding: '8px 14px', fontFamily: 'DM Sans', fontSize: 10, fontWeight: 700,
     letterSpacing: '0.07em', textTransform: 'uppercase', color: C.textMuted,
@@ -131,33 +131,35 @@ export default function MarginsView({ locationId }) {
       </div>
 
       <div style={s.tableWrap}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              {['Item','Category','COGS','Sell price','Profit / item','Margin'].map(h => (
-                <th key={h} style={s.th}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>Loading…</td></tr>
-            )}
-            {!loading && filtered.length === 0 && (
-              <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>No recipes yet.</td></tr>
-            )}
-            {filtered.map(({ r, m, c }, idx) => (
-              <tr key={r.id} style={{ background: idx % 2 === 0 ? C.white : '#FDFAF6' }}>
-                <td style={{ ...s.td, fontWeight: 500 }}>{r.name}</td>
-                <td style={{ ...s.td, color: C.textMuted, fontSize: 12 }}>{r.category}</td>
-                <td style={{ ...s.td, ...s.monoVal }}>{m !== null ? fmt2(c) : <span style={s.notCosted}>—</span>}</td>
-                <td style={{ ...s.td, ...s.monoVal }}>{fmt2(r.sellPrice)}</td>
-                <td style={{ ...s.td, ...s.monoVal }}>{m !== null ? fmt2(r.sellPrice - c) : <span style={s.notCosted}>—</span>}</td>
-                <td style={s.td}><span style={s.pill(m)}>{fmtPct(m)}</span></td>
+        <div style={{ width: '100%', overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['Item','Category','COGS','Sell price','Profit / item','Margin'].map(h => (
+                  <th key={h} style={s.th}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading && (
+                <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>Loading…</td></tr>
+              )}
+              {!loading && filtered.length === 0 && (
+                <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>No recipes yet.</td></tr>
+              )}
+              {filtered.map(({ r, m, c }, idx) => (
+                <tr key={r.id} style={{ background: idx % 2 === 0 ? C.white : '#FDFAF6' }}>
+                  <td style={{ ...s.td, fontWeight: 500 }}>{r.name}</td>
+                  <td style={{ ...s.td, color: C.textMuted, fontSize: 12 }}>{r.category}</td>
+                  <td style={{ ...s.td, ...s.monoVal }}>{m !== null ? fmt2(c) : <span style={s.notCosted}>—</span>}</td>
+                  <td style={{ ...s.td, ...s.monoVal }}>{fmt2(r.sellPrice)}</td>
+                  <td style={{ ...s.td, ...s.monoVal }}>{m !== null ? fmt2(r.sellPrice - c) : <span style={s.notCosted}>—</span>}</td>
+                  <td style={s.td}><span style={s.pill(m)}>{fmtPct(m)}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <p style={{ fontFamily: 'DM Sans', fontSize: 11, color: C.textMuted, marginTop: 10 }}>

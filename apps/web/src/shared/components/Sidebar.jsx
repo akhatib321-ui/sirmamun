@@ -11,7 +11,7 @@ const navGroups = [
       { id: 'uom', label: 'UOM guide' },
     ]
   },
-  { id: 'inventory', label: 'Inventory',
+  { id: 'orders', label: 'Smart Orders',
     sub: [
       { id: 'reorder', label: 'Reorder' },
       { id: 'upload-csv', label: 'Upload CSV' },
@@ -70,10 +70,10 @@ export default function Sidebar({ module, subView, onNavigate, isMobile }) {
         })}
       </div>
 
-      {(module === 'inventory' || module === 'catalog') && (
+      {(module === 'orders' || module === 'catalog') && (
         <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.12)' }}>
           <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', opacity: 0.7, marginBottom: 8 }}>
-            {module === 'inventory' ? 'Inventory Views' : 'Menu & Costs Views'}
+            {module === 'orders' ? 'Smart Orders Views' : 'Menu & Costs Views'}
           </div>
           <div style={{ display: isMobile ? 'flex' : 'grid', gap: 6, overflowX: isMobile ? 'auto' : 'visible' }}>
             {navGroups
