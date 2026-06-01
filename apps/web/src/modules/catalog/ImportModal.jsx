@@ -133,7 +133,8 @@ function CsvTab({ locationId, onDone }) {
   return (
     <div>
       <div style={s.help}>
-        Fallback upload for ingredients and costs. Use this when AI Intake is not suitable. Required columns: name, unit.
+        Fallback upload for ingredients and costs. Use this when AI Intake is not suitable.
+        Required columns: name, unit. Optional columns: pkg_size, qty_bought, total_paid, purchase_date, source, notes.
       </div>
       <button style={{ ...ui.button, background: C.brandSoft, marginBottom: 12 }} onClick={downloadTemplate}>Download CSV template</button>
 
@@ -215,6 +216,7 @@ function ToastSalesTab({ locationId, onOpenOrdersMatching }) {
     <div>
       <div style={s.help}>
         Upload Toast Product Mix (All Levels) CSV for Smart Orders and sales item matching.
+        Required columns: Item, open item | Qty sold | Gross sales | Net sales.
       </div>
 
       <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>

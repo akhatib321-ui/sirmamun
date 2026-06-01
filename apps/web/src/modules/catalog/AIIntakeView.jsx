@@ -200,6 +200,26 @@ const s = {
     color: isError ? tone.red : tone.green, marginBottom: 8,
   }),
   resultRow: { fontFamily: F.ui, fontSize: 12, color: C.textSecond, marginBottom: 2 },
+  reqBox: {
+    ...ui.card,
+    background: '#fffaf0',
+    borderColor: C.beigeLight,
+    padding: 12,
+    marginBottom: 12,
+  },
+  reqTitle: {
+    fontFamily: F.ui,
+    fontSize: 12,
+    fontWeight: 700,
+    color: tone.textPrimary,
+    marginBottom: 6,
+  },
+  reqLine: {
+    fontFamily: F.ui,
+    fontSize: 12,
+    color: tone.textMuted,
+    marginBottom: 3,
+  },
 };
 
 // ─── Recipe review ────────────────────────────────────────────────────────────
@@ -467,7 +487,7 @@ export default function AIIntakeView({ locationId, onNavigate }) {
       key: 'recipes',
       icon: '📋',
       title: 'Import from SOP or menu doc',
-      desc: 'Upload your operations manual, menu PDF, or recipe spreadsheet. Claude extracts every recipe with its ingredients, quantities, and units.',
+      desc: 'Upload your operations manual, menu PDF, or recipe spreadsheet. Structured menu CSV/XLSX can update existing menu items by matching names.',
       accepts: '.pdf,.xlsx,.xls,.csv,.txt',
     },
     {
@@ -485,6 +505,23 @@ export default function AIIntakeView({ locationId, onNavigate }) {
       accepts: '.csv,text/csv',
     },
   ];
+
+  const requirementsByMode = {
+    recipes: [
+      'Recipe table CSV/XLSX required columns: recipe_name, category, ingredient_name, quantity, use_unit',
+      'Menu update CSV/XLSX required columns: category, item, price (notes optional)',
+      'Existing menu items are matched by normalized name and updated with category/price',
+    ],
+    invoice: [
+      'Best results: include product name, unit, package size, quantity, and total paid',
+      'AI matches each line item to existing ingredients before import',
+    ],
+    'toast-sales': [
+      'Required file: Toast Product Mix CSV (All Levels)',
+      'Required columns: Item, open item | Qty sold | Gross sales | Net sales',
+      'Report Date is required',
+    ],
+  };
 
   const handleFile = f => { setFile(f); setError(null); setParsed(null); };
 
@@ -553,6 +590,13 @@ export default function AIIntakeView({ locationId, onNavigate }) {
       {/* File upload */}
       {mode && (
         <>
+          <div style={s.reqBox}>
+            <div style={s.reqTitle}>Required fields for this upload</div>
+            {(requirementsByMode[mode] || []).map((line, i) => (
+              <div key={i} style={s.reqLine}>- {line}</div>
+            ))}
+          </div>
+
           {mode === 'toast-sales' && (
             <div style={{ ...ui.card, padding: 12, marginBottom: 12 }}>
               <div style={{ fontFamily: F.ui, fontSize: 12, color: C.textMuted, marginBottom: 6 }}>Report Date</div>

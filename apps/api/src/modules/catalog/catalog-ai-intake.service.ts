@@ -87,7 +87,13 @@ export class CatalogAiIntakeService {
   ): Promise<RecipeParseResult | InvoiceParseResult> {
     // For structured recipe tables (CSV/XLSX), skip AI entirely.
     if (mode === 'recipes') {
-      const direct = this.tryParseStructuredRecipeTable(buffer, mimeType, filename);
+      const direct = await this.tryParseStructuredRecipeTable(
+        buffer,
+        mimeType,
+        filename,
+        organizationId,
+        locationId,
+      );
       if (direct) return direct;
     }
 
@@ -116,11 +122,13 @@ export class CatalogAiIntakeService {
     }
   }
 
-  private tryParseStructuredRecipeTable(
+  private async tryParseStructuredRecipeTable(
     buffer: Buffer,
     mimeType: string,
     filename: string,
-  ): RecipeParseResult | null {
+    organizationId: number,
+    locationId: string,
+  ): Promise<RecipeParseResult | null> {
     const lower = filename.toLowerCase();
     const isCsv = mimeType.includes('csv') || lower.endsWith('.csv');
     const isXlsx =
@@ -165,67 +173,154 @@ export class CatalogAiIntakeService {
       throw new BadRequestException('The uploaded file is empty.');
     }
 
-    const required = ['recipe_name', 'category', 'ingredient_name', 'quantity', 'use_unit'];
+    const requiredRecipeColumns = ['recipe_name', 'category', 'ingredient_name', 'quantity', 'use_unit'];
+    const requiredMenuColumns = ['category', 'item', 'price'];
     const first = rows[0] || {};
-    const hasAll = required.every((k) => k in first);
+    const keys = Object.keys(first);
 
-    if (!hasAll) {
-      // Not a structured recipe table, allow normal AI flow.
-      return null;
-    }
+    const hasAllRecipeColumns = requiredRecipeColumns.every((k) => k in first);
+    const hasAllMenuColumns = requiredMenuColumns.every((k) => k in first);
+    const hasRecipeHints = keys.some((k) => ['recipe_name', 'ingredient_name', 'quantity', 'use_unit'].includes(k));
+    const hasMenuHints = keys.some((k) => ['category', 'item', 'price', 'notes'].includes(k));
 
-    const byRecipe = new Map<string, ParsedRecipe>();
-    const newIngredients = new Map<string, { name: string; unit: string }>();
-
-    rows.forEach((row) => {
-      const recipeName = String(row.recipe_name || '').trim();
-      const category = String(row.category || '').trim();
-      const ingredientName = String(row.ingredient_name || '').trim();
-      const quantityRaw = String(row.quantity || '').trim();
-      const useUnit = String(row.use_unit || '').trim();
-
-      if (!recipeName || !ingredientName || !useUnit) return;
-
-      const quantity = Number(quantityRaw);
-      const safeQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
-
-      const key = recipeName.toLowerCase();
-      if (!byRecipe.has(key)) {
-        byRecipe.set(key, {
-          name: recipeName,
-          category: category || 'Signature Espresso',
-          sellPrice: 0,
-          ingredients: [],
-        });
-      }
-
-      byRecipe.get(key)!.ingredients.push({
-        ingredientName,
-        quantity: safeQty,
-        useUnit,
-        matchedExisting: false,
-      });
-
-      const ingKey = ingredientName.toLowerCase();
-      if (!newIngredients.has(ingKey)) {
-        newIngredients.set(ingKey, { name: ingredientName, unit: useUnit });
-      }
-    });
-
-    const recipes = Array.from(byRecipe.values()).filter((r) => r.ingredients.length > 0);
-
-    if (!recipes.length) {
+    if (hasRecipeHints && !hasAllRecipeColumns) {
       throw new BadRequestException(
-        'No valid recipe rows found. Required columns: recipe_name, category, ingredient_name, quantity, use_unit',
+        'Structured recipe CSV/XLSX is missing required columns. Required: recipe_name, category, ingredient_name, quantity, use_unit',
       );
     }
 
-    return {
-      mode: 'recipes',
-      recipes,
-      newIngredients: Array.from(newIngredients.values()),
-      rawText: '[Parsed from structured recipe table]'
-    };
+    if (hasMenuHints && !hasAllMenuColumns) {
+      throw new BadRequestException(
+        'Menu CSV/XLSX is missing required columns. Required: category, item, price (notes is optional)',
+      );
+    }
+
+    const existingRecipes = await this.prisma.recipe.findMany({
+      where: { organizationId, locationId, active: true },
+      select: { name: true },
+    });
+    const existingRecipeNameByNorm = new Map<string, string>(
+      existingRecipes.map((r) => [this.normalizeName(r.name), r.name]),
+    );
+
+    if (hasAllRecipeColumns) {
+      const byRecipe = new Map<string, ParsedRecipe>();
+      const newIngredients = new Map<string, { name: string; unit: string }>();
+
+      rows.forEach((row) => {
+        const rawRecipeName = String(row.recipe_name || '').trim();
+        const category = String(row.category || '').trim();
+        const ingredientName = String(row.ingredient_name || '').trim();
+        const quantityRaw = String(row.quantity || '').trim();
+        const useUnit = String(row.use_unit || '').trim();
+        const sellPriceRaw = String(row.sell_price || row.price || row.menu_price || '').trim();
+
+        if (!rawRecipeName || !ingredientName || !useUnit) return;
+
+        const quantity = Number(quantityRaw);
+        const safeQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+
+        const canonicalRecipeName = existingRecipeNameByNorm.get(this.normalizeName(rawRecipeName)) || rawRecipeName;
+        const key = canonicalRecipeName.toLowerCase();
+
+        if (!byRecipe.has(key)) {
+          byRecipe.set(key, {
+            name: canonicalRecipeName,
+            category: category || 'Signature Espresso',
+            sellPrice: this.parseCurrency(sellPriceRaw),
+            ingredients: [],
+          });
+        }
+
+        byRecipe.get(key)!.ingredients.push({
+          ingredientName,
+          quantity: safeQty,
+          useUnit,
+          matchedExisting: false,
+        });
+
+        const ingKey = ingredientName.toLowerCase();
+        if (!newIngredients.has(ingKey)) {
+          newIngredients.set(ingKey, { name: ingredientName, unit: useUnit });
+        }
+      });
+
+      const recipes = Array.from(byRecipe.values()).filter((r) => r.ingredients.length > 0);
+
+      if (!recipes.length) {
+        throw new BadRequestException(
+          'No valid recipe rows found. Required columns: recipe_name, category, ingredient_name, quantity, use_unit',
+        );
+      }
+
+      return {
+        mode: 'recipes',
+        recipes,
+        newIngredients: Array.from(newIngredients.values()),
+        rawText: '[Parsed from structured recipe table]'
+      };
+    }
+
+    if (hasAllMenuColumns) {
+      const byRecipe = new Map<string, ParsedRecipe>();
+
+      rows.forEach((row) => {
+        const rawName = String(row.item || '').trim();
+        const category = String(row.category || '').trim();
+        const priceRaw = String(row.price || '').trim();
+
+        if (!rawName) return;
+
+        const canonicalRecipeName = existingRecipeNameByNorm.get(this.normalizeName(rawName)) || rawName;
+        const key = canonicalRecipeName.toLowerCase();
+
+        if (!byRecipe.has(key)) {
+          byRecipe.set(key, {
+            name: canonicalRecipeName,
+            category: category || 'Signature Espresso',
+            sellPrice: this.parseCurrency(priceRaw),
+            ingredients: [],
+          });
+          return;
+        }
+
+        const existing = byRecipe.get(key)!;
+        const parsedPrice = this.parseCurrency(priceRaw);
+        if ((existing.sellPrice <= 0) && parsedPrice > 0) {
+          existing.sellPrice = parsedPrice;
+        }
+        if (!existing.category && category) {
+          existing.category = category;
+        }
+      });
+
+      const recipes = Array.from(byRecipe.values());
+      if (!recipes.length) {
+        throw new BadRequestException(
+          'No valid menu rows found. Required columns: category, item, price',
+        );
+      }
+
+      return {
+        mode: 'recipes',
+        recipes,
+        newIngredients: [],
+        rawText: '[Parsed from structured menu table]'
+      };
+    }
+
+    // Not a recognized structured table; allow normal AI flow.
+    return null;
+  }
+
+  private normalizeName(input: string): string {
+    return input.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
+  }
+
+  private parseCurrency(input: string): number {
+    const cleaned = String(input || '').replace(/[^0-9.-]/g, '');
+    const value = Number(cleaned);
+    return Number.isFinite(value) && value >= 0 ? value : 0;
   }
 
   // ─── Recipe extraction ────────────────────────────────────────────────────
@@ -293,7 +388,8 @@ CRITICAL: Respond ONLY with valid JSON matching this exact shape. No markdown, n
     } catch {
       throw new BadRequestException(
         'Claude could not extract structured recipe data from this document. ' +
-        'Ensure the document contains readable recipe text and try again.'
+        'Ensure the document contains readable recipe text, or upload a structured CSV/XLSX with either ' +
+        'recipe_name, category, ingredient_name, quantity, use_unit OR category, item, price.'
       );
     }
 
