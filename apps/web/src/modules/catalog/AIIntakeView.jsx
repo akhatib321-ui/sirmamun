@@ -50,14 +50,32 @@ const tone = {
 
 const BASE = '/api/v1';
 
+async function parseApiResponse(res) {
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('application/json')) {
+    const data = await res.json().catch(() => ({}));
+    return data;
+  }
+
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) return {};
+
+  // Some proxies/middlewares may return JSON with a missing content-type.
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { message: text };
+  }
+}
+
 async function authFetch(path, opts = {}) {
   const token = localStorage.getItem('token');
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
     headers: { Authorization: `Bearer ${token}`, ...(opts.headers ?? {}) },
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Request failed');
+  const data = await parseApiResponse(res);
+  if (!res.ok) throw new Error(data.message || `Request failed (${res.status})`);
   return data;
 }
 
@@ -70,8 +88,8 @@ async function parseFile(locationId, mode, file) {
     headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || 'Parse failed');
+  const data = await parseApiResponse(res);
+  if (!res.ok) throw new Error(data.message || `Parse failed (${res.status})`);
   return data;
 }
 
