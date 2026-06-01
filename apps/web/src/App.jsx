@@ -1765,7 +1765,7 @@ function Module2Placeholder({label}){
     <div style={{padding:28}}>
       <div style={{...ui.card,padding:24}}>
         <div style={{fontFamily:tokens.fonts.heading,fontSize:30,marginBottom:8}}>{label}</div>
-        <div style={{color:tokens.colors.muted}}>This Madam Jaz section is reserved for future work.</div>
+        <div style={{color:tokens.colors.muted}}>This SirManager section is reserved for future work.</div>
       </div>
     </div>
   );
@@ -1805,7 +1805,7 @@ function Module2Workspace({user,onLogout,onExit}){
     <div style={{background:tokens.colors.paper,minHeight:'calc(100vh - 130px)'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'12px 18px',borderBottom:`1px solid ${tokens.colors.border}`,background:'rgba(255,255,255,0.82)',backdropFilter:'blur(6px)'}}>
         <div>
-          <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',color:tokens.colors.muted,fontFamily:tokens.fonts.body}}>Madam Jaz</div>
+          <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',color:tokens.colors.muted,fontFamily:tokens.fonts.body}}>SirManager</div>
           <div style={{fontFamily:tokens.fonts.heading,fontSize:24,lineHeight:1.1}}>Catalog + Smart Orders Workspace</div>
         </div>
         <button onClick={onExit} style={{border:`1px solid ${tokens.colors.border}`,background:'#fff',borderRadius:10,padding:'9px 12px',cursor:'pointer',fontWeight:600,fontFamily:tokens.fonts.body,color:tokens.colors.ink}}>Back to SirMamun</button>
@@ -1830,7 +1830,7 @@ function Module2Workspace({user,onLogout,onExit}){
               >
                 ☰
               </button>
-              <span style={{fontFamily:tokens.fonts.heading,fontSize:18,color:tokens.gold,fontWeight:700}}>Madam Jaz</span>
+              <span style={{fontFamily:tokens.fonts.heading,fontSize:18,color:tokens.gold,fontWeight:700}}>SirManager</span>
             </div>
 
             {sidebarOpen && (
@@ -1880,7 +1880,7 @@ function MoreSheet({user,setTab,onClose,data}){
       <div style={{margin:'-18px -20px 0'}}>
         <Row bg={C.redL} col={C.red} icon={Ic.reorder} label="Reorder" sub={`${low.length} item${low.length!==1?'s':''} need attention`} badge={low.length>0?low.length:null} onClick={()=>go('reorder')}/>
         <Row bg={C.beige} col={C.warmM} icon={Ic.loc} label="Locations" sub={`${data.locations.length} location${data.locations.length!==1?'s':''}`} onClick={()=>go('locations')}/>
-        <Row bg={C.goldP} col={C.warm} icon={module2Icon} label="Madam Jaz" sub="Catalog, reorder, upload CSV, and matching workspace" onClick={()=>go('module2')}/>
+        <Row bg={C.goldP} col={C.warm} icon={module2Icon} label="SirManager" sub="Catalog, reorder, upload Toast/Product Sales, and matching workspace" onClick={()=>go('module2')}/>
         {user?.role==='admin'&&(
           <>
             <div style={{padding:'12px 18px 4px',fontSize:10,fontWeight:700,letterSpacing:1.2,textTransform:'uppercase',color:C.warmL,fontFamily:ff}}>Admin only</div>
@@ -1951,7 +1951,7 @@ export default function App(){
   const low=getLowGroups(viewData);
   const moreActive=['reorder','locations','settings','module2'].includes(tab);
   const TABS=[{key:'dashboard',label:'Dashboard',icon:Ic.dash},{key:'inventory',label:'Inventory',icon:Ic.inv},{key:'catalog',label:'Catalog',icon:Ic.cat}];
-  const tabTitles={dashboard:'Dashboard',inventory:'Inventory',catalog:'Item Catalog',reorder:'Reorder List',locations:'Locations',settings:'Settings',module2:'Madam Jaz'};
+  const tabTitles={dashboard:'Dashboard',inventory:'Inventory',catalog:'Item Catalog',reorder:'Reorder List',locations:'Locations',settings:'Settings',module2:'SirManager'};
   return(
     <div className="app-shell" style={{background:C.cream,minHeight:'100vh',fontFamily:ff,color:C.warm,width:'100%',paddingBottom:74,position:'relative'}}>
       {/* Logo watermark */}

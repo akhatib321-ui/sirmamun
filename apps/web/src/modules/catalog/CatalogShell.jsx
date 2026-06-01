@@ -127,6 +127,14 @@ export default function CatalogShell({ subView: initialSubView, onNavigate, user
             setShowImport(false);
             setRefreshKey((k) => k + 1);
           }}
+          onOpenAiIntake={() => {
+            setShowImport(false);
+            handleTabChange('ai-intake');
+          }}
+          onOpenOrdersMatching={() => {
+            setShowImport(false);
+            onNavigate?.('orders', 'matching');
+          }}
         />
       )}
     </div>

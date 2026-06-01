@@ -64,7 +64,7 @@ export default function ReorderOverview({ onOpenDetail, onOpenOrderList, onOpenU
           Calculate reorder suggestions across all locations and drill in by urgency.
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button style={{ ...ui.button, background: tokens.colors.sky }} onClick={onOpenUpload}>Upload CSV</button>
+          <button style={{ ...ui.button, background: tokens.colors.sky }} onClick={onOpenUpload}>Upload Toast or Upload Product Sales</button>
           <button style={{ ...ui.button, background: tokens.colors.brandSoft }} onClick={onOpenMatching}>Matching</button>
         </div>
       </div>

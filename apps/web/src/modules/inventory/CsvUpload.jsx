@@ -48,7 +48,7 @@ export default function CsvUpload({ onOpenMatching }) {
   return (
     <div style={{ padding: 20, maxWidth: 760 }}>
       <div style={{ ...ui.card, padding: 20 }}>
-        <div style={{ fontFamily: tokens.fonts.heading, fontSize: 30, marginBottom: 6 }}>Upload Toast CSV</div>
+        <div style={{ fontFamily: tokens.fonts.heading, fontSize: 30, marginBottom: 6 }}>Upload Toast or Upload Product Sales</div>
         <div style={{ fontSize: 14, color: tokens.colors.muted, marginBottom: 16 }}>
           Upload the All Levels Product Mix CSV, then continue in Matching.
         </div>
@@ -89,7 +89,7 @@ export default function CsvUpload({ onOpenMatching }) {
         {message && <div style={{ ...ui.card, padding: 10, background: '#eef8f2', borderColor: '#cbe7d6', marginBottom: 10 }}>{message}</div>}
 
         <button style={{ ...ui.button, background: tokens.colors.ink, color: '#fff' }} onClick={handleUpload} disabled={loading}>
-          {loading ? 'Uploading...' : 'Upload CSV'}
+          {loading ? 'Uploading...' : 'Upload Toast / Product Sales'}
         </button>
       </div>
     </div>

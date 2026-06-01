@@ -184,12 +184,110 @@ function CsvTab({ locationId, onDone }) {
   );
 }
 
-export default function ImportModal({ locationId, onClose, onDone }) {
+function ToastSalesTab({ locationId, onOpenOrdersMatching }) {
+  const [reportDate, setReportDate] = useState('');
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const fileRef = useRef(null);
+
+  const handleUpload = async () => {
+    if (!reportDate || !file) {
+      setError('Select report date and CSV file first');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await api.uploadSalesCsv(locationId, reportDate, file);
+      setResult(res.data);
+    } catch (e) {
+      setError(e.message || 'Upload failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div style={s.help}>
+        Upload Toast Product Mix (All Levels) CSV for Smart Orders and sales item matching.
+      </div>
+
+      <label style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+        <span style={{ fontWeight: 600 }}>Report Date</span>
+        <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} style={ui.input} />
+      </label>
+
+      <div style={s.dropzone(false, !!file)} onClick={() => fileRef.current?.click()}>
+        <div style={{ fontSize: 28 }}>{file ? 'CSV Ready' : 'Drop Toast/Product Sales CSV here'}</div>
+        <div style={{ color: C.colors.muted, fontSize: 12 }}>{file ? file.name : 'or click to browse'}</div>
+      </div>
+      <input
+        ref={fileRef}
+        type='file'
+        accept='.csv,text/csv'
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          setFile(e.target.files[0]);
+          setError('');
+          setResult(null);
+        }}
+      />
+
+      <ErrorBox message={error} />
+      {result && (
+        <div style={{ ...ui.card, borderColor: '#b9e5c7', background: '#eef9f1', padding: 12, marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: C.colors.success }}>Upload successful</div>
+          <div style={{ fontSize: 12 }}>Item count: {result.itemCount ?? 0}</div>
+          <div style={{ fontSize: 12 }}>Status: {result.status ?? 'processing'}</div>
+          <div style={{ fontSize: 12 }}>{result.message ?? 'Matching is running in the background.'}</div>
+          <button
+            style={{ ...ui.button, background: C.colors.ink, color: '#fff', marginTop: 10 }}
+            onClick={() => onOpenOrdersMatching?.()}
+          >
+            Open Smart Orders Matching
+          </button>
+        </div>
+      )}
+
+      <div style={s.actions}>
+        <button
+          style={{ ...ui.button, background: C.colors.ink, color: '#fff', opacity: (!reportDate || !file || loading) ? 0.5 : 1 }}
+          disabled={!reportDate || !file || loading}
+          onClick={handleUpload}
+        >
+          {loading ? 'Uploading...' : 'Upload Toast / Product Sales'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default function ImportModal({ locationId, onClose, onDone, onOpenAiIntake, onOpenOrdersMatching }) {
   return (
     <div style={s.overlay} onClick={onClose}>
       <div style={s.modal} onClick={(e) => e.stopPropagation()}>
         <div style={s.title}>Spreadsheet Import</div>
-        <div style={s.subtitle}>Admin fallback: upload ingredients CSV with optional cost data.</div>
+        <div style={s.subtitle}>Admin tools: AI intake for SOP/menu, Toast/Product Sales upload, and ingredient CSV fallback.</div>
+
+        <div style={s.help}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Import from SOP or menu doc</div>
+          <div style={{ marginBottom: 10 }}>
+            For recipe extraction from PDFs/docs, use AI Intake. This is the recommended path for structured menu imports.
+          </div>
+          <button
+            style={{ ...ui.button, background: C.colors.ink, color: '#fff' }}
+            onClick={() => onOpenAiIntake?.()}
+          >
+            Open AI Intake
+          </button>
+        </div>
+
+        <ToastSalesTab locationId={locationId} onOpenOrdersMatching={onOpenOrdersMatching} />
 
         <CsvTab locationId={locationId} onDone={onDone} />
 

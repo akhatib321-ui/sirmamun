@@ -14,7 +14,7 @@ const navGroups = [
   { id: 'orders', label: 'Smart Orders',
     sub: [
       { id: 'reorder', label: 'Reorder' },
-      { id: 'upload-csv', label: 'Upload CSV' },
+      { id: 'upload-csv', label: 'Upload Toast or Upload Product Sales' },
       { id: 'matching', label: 'Matching' }
     ]
   },

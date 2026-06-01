@@ -11,6 +11,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useRef } from 'react';
+import { api } from '../../api.js';
 import { tokens as C, ui } from '../../shared/styles.js';
 
 const F = {
@@ -451,12 +452,14 @@ function InvoiceReview({ parsed, onConfirm, locationId }) {
 
 // ─── Main view ─────────────────────────────────────────────────────────────────
 export default function AIIntakeView({ locationId, onNavigate }) {
-  const [mode,     setMode]     = useState(null); // 'recipes' | 'invoice'
+  const [mode,     setMode]     = useState(null); // 'recipes' | 'invoice' | 'toast-sales'
   const [file,     setFile]     = useState(null);
   const [dragging, setDragging] = useState(false);
   const [parsing,  setParsing]  = useState(false);
   const [parsed,   setParsed]   = useState(null);
   const [error,    setError]    = useState(null);
+  const [toastReportDate, setToastReportDate] = useState('');
+  const [toastResult, setToastResult] = useState(null);
   const fileRef = useRef();
 
   const MODES = [
@@ -474,6 +477,13 @@ export default function AIIntakeView({ locationId, onNavigate }) {
       desc: 'Upload an Amazon Fresh order confirmation, Wowbo invoice, or any supplier document. Claude extracts costs and matches items to your ingredient library.',
       accepts: '.pdf,.xlsx,.xls,.csv,.txt',
     },
+    {
+      key: 'toast-sales',
+      icon: '📈',
+      title: 'Upload Toast or product sales CSV',
+      desc: 'Upload your Toast Product Mix (All Levels) CSV for Smart Orders matching and reorder generation.',
+      accepts: '.csv,text/csv',
+    },
   ];
 
   const handleFile = f => { setFile(f); setError(null); setParsed(null); };
@@ -482,8 +492,14 @@ export default function AIIntakeView({ locationId, onNavigate }) {
     if (!file || !mode || !locationId) return;
     setParsing(true); setError(null);
     try {
-      const res = await parseFile(locationId, mode, file);
-      setParsed(res);
+      if (mode === 'toast-sales') {
+        if (!toastReportDate) throw new Error('Select report date before uploading.');
+        const res = await api.uploadSalesCsv(locationId, toastReportDate, file);
+        setToastResult(res?.data ?? null);
+      } else {
+        const res = await parseFile(locationId, mode, file);
+        setParsed(res);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -491,7 +507,14 @@ export default function AIIntakeView({ locationId, onNavigate }) {
     }
   };
 
-  const reset = () => { setMode(null); setFile(null); setParsed(null); setError(null); };
+  const reset = () => {
+    setMode(null);
+    setFile(null);
+    setParsed(null);
+    setError(null);
+    setToastReportDate('');
+    setToastResult(null);
+  };
 
   // ── Review screens ──────────────────────────────────────────────────────────
   if (parsed) {
@@ -511,7 +534,8 @@ export default function AIIntakeView({ locationId, onNavigate }) {
     <div style={s.page}>
       <div style={s.heading}>AI Intake</div>
       <div style={s.subheading}>
-        Upload a document and Claude will extract recipes or costs automatically.
+        Upload a document and Claude will extract recipes or costs automatically,
+        or upload Toast/Product Sales CSV for Smart Orders matching.
         You review everything before anything is saved.
       </div>
 
@@ -529,6 +553,18 @@ export default function AIIntakeView({ locationId, onNavigate }) {
       {/* File upload */}
       {mode && (
         <>
+          {mode === 'toast-sales' && (
+            <div style={{ ...ui.card, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontFamily: F.ui, fontSize: 12, color: C.textMuted, marginBottom: 6 }}>Report Date</div>
+              <input
+                type="date"
+                value={toastReportDate}
+                onChange={(e) => setToastReportDate(e.target.value)}
+                style={{ ...ui.input, width: '100%' }}
+              />
+            </div>
+          )}
+
           <div
             style={s.dropzone(dragging, !!file)}
             onClick={() => fileRef.current?.click()}
@@ -538,7 +574,9 @@ export default function AIIntakeView({ locationId, onNavigate }) {
           >
             <div style={s.dropIcon}>{file ? '📄' : '📂'}</div>
             <div style={s.dropLabel}>{file ? file.name : 'Drop file here or click to browse'}</div>
-            <div style={s.dropSub}>PDF, Excel (.xlsx), CSV, or plain text</div>
+            <div style={s.dropSub}>
+              {mode === 'toast-sales' ? 'Toast Product Mix CSV (All Levels)' : 'PDF, Excel (.xlsx), CSV, or plain text'}
+            </div>
           </div>
           <input
             ref={fileRef} type="file"
@@ -549,8 +587,23 @@ export default function AIIntakeView({ locationId, onNavigate }) {
 
           {error && (
             <div style={{ ...s.resultBox(true), marginBottom: 14 }}>
-              <div style={s.resultTitle(true)}>Parse failed</div>
+              <div style={s.resultTitle(true)}>{mode === 'toast-sales' ? 'Upload failed' : 'Parse failed'}</div>
               <div style={s.resultRow}>{error}</div>
+            </div>
+          )}
+
+          {toastResult && mode === 'toast-sales' && (
+            <div style={{ ...s.resultBox(false), marginBottom: 14 }}>
+              <div style={s.resultTitle(false)}>Upload successful</div>
+              <div style={s.resultRow}>Item count: {toastResult.itemCount ?? 0}</div>
+              <div style={s.resultRow}>Status: {toastResult.status ?? 'processing'}</div>
+              <div style={s.resultRow}>{toastResult.message ?? 'Matching has started in the background.'}</div>
+              <button
+                style={{ ...btnPrimary, marginTop: 12, fontSize: 12 }}
+                onClick={() => onNavigate?.('orders', 'matching')}
+              >
+                Open Smart Orders Matching
+              </button>
             </div>
           )}
 
@@ -562,10 +615,11 @@ export default function AIIntakeView({ locationId, onNavigate }) {
             </div>
           ) : (
             <button
-              style={{ ...btnPrimary, opacity: !file ? 0.5 : 1, fontSize: 14 }}
-              onClick={handleParse} disabled={!file}
+              style={{ ...btnPrimary, opacity: (!file || (mode === 'toast-sales' && !toastReportDate)) ? 0.5 : 1, fontSize: 14 }}
+              onClick={handleParse}
+              disabled={!file || (mode === 'toast-sales' && !toastReportDate)}
             >
-              {mode === 'recipes' ? '✨ Extract recipes' : '✨ Extract costs'}
+              {mode === 'recipes' ? '✨ Extract recipes' : mode === 'invoice' ? '✨ Extract costs' : 'Upload Toast / Product Sales'}
             </button>
           )}
         </>

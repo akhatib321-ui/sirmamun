@@ -15,6 +15,7 @@
 
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import * as XLSX from 'xlsx';
+import { parse as parseCsv } from 'csv-parse/sync';
 import { PrismaService } from '../../core/prisma/prisma.service';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
@@ -84,6 +85,12 @@ export class CatalogAiIntakeService {
     organizationId: number,
     locationId:     string,
   ): Promise<RecipeParseResult | InvoiceParseResult> {
+    // For structured recipe tables (CSV/XLSX), skip AI entirely.
+    if (mode === 'recipes') {
+      const direct = this.tryParseStructuredRecipeTable(buffer, mimeType, filename);
+      if (direct) return direct;
+    }
+
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       throw new BadRequestException(
@@ -107,6 +114,118 @@ export class CatalogAiIntakeService {
     } else {
       return this.extractInvoice(buffer, mimeType, isPdf, existingIngredients, apiKey);
     }
+  }
+
+  private tryParseStructuredRecipeTable(
+    buffer: Buffer,
+    mimeType: string,
+    filename: string,
+  ): RecipeParseResult | null {
+    const lower = filename.toLowerCase();
+    const isCsv = mimeType.includes('csv') || lower.endsWith('.csv');
+    const isXlsx =
+      mimeType.includes('spreadsheetml') ||
+      mimeType.includes('excel') ||
+      lower.endsWith('.xlsx') ||
+      lower.endsWith('.xls');
+
+    if (!isCsv && !isXlsx) return null;
+
+    let rows: Array<Record<string, string>> = [];
+
+    if (isCsv) {
+      try {
+        rows = parseCsv(buffer, {
+          columns: (header: string[]) =>
+            header.map((h) => h.toLowerCase().trim().replace(/\s+/g, '_')),
+          skip_empty_lines: true,
+          trim: true,
+        });
+      } catch {
+        throw new BadRequestException('Could not parse CSV recipe table.');
+      }
+    } else {
+      try {
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        rows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' }).map((row: any) => {
+          const out: Record<string, string> = {};
+          Object.keys(row).forEach((k) => {
+            const key = String(k).toLowerCase().trim().replace(/\s+/g, '_');
+            out[key] = String(row[k] ?? '').trim();
+          });
+          return out;
+        });
+      } catch {
+        throw new BadRequestException('Could not parse Excel recipe table.');
+      }
+    }
+
+    if (!rows.length) {
+      throw new BadRequestException('The uploaded file is empty.');
+    }
+
+    const required = ['recipe_name', 'category', 'ingredient_name', 'quantity', 'use_unit'];
+    const first = rows[0] || {};
+    const hasAll = required.every((k) => k in first);
+
+    if (!hasAll) {
+      // Not a structured recipe table, allow normal AI flow.
+      return null;
+    }
+
+    const byRecipe = new Map<string, ParsedRecipe>();
+    const newIngredients = new Map<string, { name: string; unit: string }>();
+
+    rows.forEach((row) => {
+      const recipeName = String(row.recipe_name || '').trim();
+      const category = String(row.category || '').trim();
+      const ingredientName = String(row.ingredient_name || '').trim();
+      const quantityRaw = String(row.quantity || '').trim();
+      const useUnit = String(row.use_unit || '').trim();
+
+      if (!recipeName || !ingredientName || !useUnit) return;
+
+      const quantity = Number(quantityRaw);
+      const safeQty = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+
+      const key = recipeName.toLowerCase();
+      if (!byRecipe.has(key)) {
+        byRecipe.set(key, {
+          name: recipeName,
+          category: category || 'Signature Espresso',
+          sellPrice: 0,
+          ingredients: [],
+        });
+      }
+
+      byRecipe.get(key)!.ingredients.push({
+        ingredientName,
+        quantity: safeQty,
+        useUnit,
+        matchedExisting: false,
+      });
+
+      const ingKey = ingredientName.toLowerCase();
+      if (!newIngredients.has(ingKey)) {
+        newIngredients.set(ingKey, { name: ingredientName, unit: useUnit });
+      }
+    });
+
+    const recipes = Array.from(byRecipe.values()).filter((r) => r.ingredients.length > 0);
+
+    if (!recipes.length) {
+      throw new BadRequestException(
+        'No valid recipe rows found. Required columns: recipe_name, category, ingredient_name, quantity, use_unit',
+      );
+    }
+
+    return {
+      mode: 'recipes',
+      recipes,
+      newIngredients: Array.from(newIngredients.values()),
+      rawText: '[Parsed from structured recipe table]'
+    };
   }
 
   // ─── Recipe extraction ────────────────────────────────────────────────────

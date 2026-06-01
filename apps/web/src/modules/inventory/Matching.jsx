@@ -16,8 +16,10 @@ export default function Matching({ initialReportId, onRunReorderNow }) {
   const [unmatched, setUnmatched] = useState([]);
   const [selectedRecipeByItem, setSelectedRecipeByItem] = useState({});
   const [loading, setLoading] = useState(false);
+  const [matchingAll, setMatchingAll] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const { isMobile } = useResponsive();
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export default function Matching({ initialReportId, onRunReorderNow }) {
   );
 
   async function handleMatch(itemId) {
+    setNotice('');
     const recipeId = selectedRecipeByItem[itemId];
     if (!recipeId) {
       setError('Select a recipe before confirming.');
@@ -95,8 +98,48 @@ export default function Matching({ initialReportId, onRunReorderNow }) {
       });
       const next = await api.getUnmatchedItems(reportId);
       setUnmatched(next?.data?.unmatchedItems || []);
+      setNotice('Item confirmed.');
     } catch (err) {
       setError(err.message || 'Manual match failed');
+    }
+  }
+
+  async function handleConfirmAll() {
+    setNotice('');
+    setError('');
+
+    const selectedItems = unmatched.filter((item) => selectedRecipeByItem[item.id]);
+    if (selectedItems.length === 0) {
+      setError('Select recipes for at least one row before confirming all.');
+      return;
+    }
+
+    setMatchingAll(true);
+    try {
+      await Promise.all(
+        selectedItems.map((item) => api.manualMatch(item.id, selectedRecipeByItem[item.id]))
+      );
+
+      setSelectedRecipeByItem((prev) => {
+        const next = { ...prev };
+        selectedItems.forEach((item) => {
+          delete next[item.id];
+        });
+        return next;
+      });
+
+      const next = await api.getUnmatchedItems(reportId);
+      setUnmatched(next?.data?.unmatchedItems || []);
+
+      const skipped = unmatched.length - selectedItems.length;
+      setNotice(
+        `Confirmed ${selectedItems.length} item${selectedItems.length !== 1 ? 's' : ''}` +
+        (skipped > 0 ? `; skipped ${skipped} without a selected recipe.` : '.')
+      );
+    } catch (err) {
+      setError(err.message || 'Bulk confirm failed');
+    } finally {
+      setMatchingAll(false);
     }
   }
 
@@ -159,7 +202,16 @@ export default function Matching({ initialReportId, onRunReorderNow }) {
 
   const list = (
     <div style={{ ...ui.card, padding: 14 }}>
-      <div style={{ fontWeight: 700, marginBottom: 10 }}>Unmatched Items ({unmatched.length})</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+        <div style={{ fontWeight: 700 }}>Unmatched Items ({unmatched.length})</div>
+        <button
+          style={{ ...ui.button, background: '#16121a', color: '#fff', opacity: (matchingAll || unmatched.length === 0) ? 0.6 : 1 }}
+          onClick={handleConfirmAll}
+          disabled={matchingAll || unmatched.length === 0}
+        >
+          {matchingAll ? 'Confirming...' : 'Confirm All Selected'}
+        </button>
+      </div>
       {unmatched.length === 0 ? (
         <div>Everything is matched for this report.</div>
       ) : (
@@ -193,8 +245,9 @@ export default function Matching({ initialReportId, onRunReorderNow }) {
                   ))}
                 </select>
                 <button
-                  style={{ ...ui.button, background: tokens.colors.brandSoft }}
+                  style={{ ...ui.button, background: tokens.colors.brandSoft, opacity: selectedRecipeByItem[item.id] ? 1 : 0.6 }}
                   onClick={() => handleMatch(item.id)}
+                  disabled={!selectedRecipeByItem[item.id]}
                 >
                   Confirm
                 </button>
@@ -226,6 +279,19 @@ export default function Matching({ initialReportId, onRunReorderNow }) {
           }}
         >
           {error}
+        </div>
+      )}
+      {notice && (
+        <div
+          style={{
+            ...ui.card,
+            padding: 10,
+            background: '#eef8f2',
+            borderColor: '#cbe7d6',
+            marginBottom: 10,
+          }}
+        >
+          {notice}
         </div>
       )}
       {loading ? <div style={{ ...ui.card, padding: 14 }}>Loading unmatched items...</div> : reportId ? list : null}
