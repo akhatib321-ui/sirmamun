@@ -48,7 +48,9 @@ const tone = {
   redBorder: '#FCA5A5',
 };
 
-const BASE = '/api/v1';
+const BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api/v1`
+  : '/api/v1';
 
 async function parseApiResponse(res) {
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
