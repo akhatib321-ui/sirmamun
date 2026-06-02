@@ -21,6 +21,7 @@ import { Queues, GenerateReorderJobData } from '../queue-names';
 import { Events } from '../../events/event-types';
 import { ReorderSuggestionGeneratedPayload } from '../../events/event-payloads.interface';
 import { convertToIngredientUnit } from '../../shared/uom.util';
+import { StockChainService } from '../../modules/inventory/stock-chain.service';
 
 @Processor(Queues.GENERATE_REORDER)
 export class GenerateReorderProcessor extends WorkerHost {
@@ -29,6 +30,7 @@ export class GenerateReorderProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly stockChain: StockChainService,
   ) {
     super();
   }
@@ -70,6 +72,11 @@ export class GenerateReorderProcessor extends WorkerHost {
       reason: string;
     }> = [];
 
+    const chainResults = await this.stockChain.resolveAllForLocation(
+      locationId,
+      organizationId,
+    );
+
     for (const ingredient of ingredients) {
       const preferredLink = ingredient.supplierLinks[0];
       if (!preferredLink) continue;
@@ -84,6 +91,7 @@ export class GenerateReorderProcessor extends WorkerHost {
           locationId,
           organizationId,
           windowDays,
+          chainResults[ingredient.id],
         );
 
         // Skip ingredients with no sales history
@@ -192,21 +200,31 @@ export class GenerateReorderProcessor extends WorkerHost {
     locationId: string,
     organizationId: number,
     windowDays: number,
+    chainQty?: number | null,
   ): Promise<{ stock: number; dailyRate: number }> {
     const now = new Date();
     const windowStart = new Date(now);
     windowStart.setDate(windowStart.getDate() - windowDays);
 
-    // 1. Latest inventory snapshot before now
-    const snapshot = await this.prisma.inventorySnapshot.findFirst({
-      where: { locationId, organizationId, snappedAt: { lte: now } },
-      orderBy: { snappedAt: 'desc' },
-      include: { items: { where: { ingredientId } } },
-    });
+    let baselineQty: number;
+    let baselineUnit: string;
+    let baselineDate: Date;
 
-    const baselineQty = snapshot?.items[0]?.quantity ?? 0;
-    const baselineUnit = snapshot?.items[0]?.unit ?? ingredientUnit;
-    const baselineDate = snapshot?.snappedAt ?? new Date(0);
+    if (chainQty !== null && chainQty !== undefined) {
+      baselineQty = chainQty;
+      baselineUnit = ingredientUnit;
+      baselineDate = now;
+    } else {
+      const snapshot = await this.prisma.inventorySnapshot.findFirst({
+        where: { locationId, organizationId, snappedAt: { lte: now } },
+        orderBy: { snappedAt: 'desc' },
+        include: { items: { where: { ingredientId } } },
+      });
+
+      baselineQty = snapshot?.items[0]?.quantity ?? 0;
+      baselineUnit = snapshot?.items[0]?.unit ?? ingredientUnit;
+      baselineDate = snapshot?.snappedAt ?? new Date(0);
+    }
 
     // Convert baseline to ingredient buy unit if needed
     const baselineInBuyUnit =

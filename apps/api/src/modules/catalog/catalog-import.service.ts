@@ -100,6 +100,7 @@ export class CatalogImportService {
               data: {
                 ingredientId: ingId,
                 locationId,
+                buyUnit: ing.unit,
                 pkgSize: cost.pkgSize,
                 qtyBought: cost.qtyBought || 1,
                 totalPaid: cost.totalPaid,
@@ -271,6 +272,7 @@ export class CatalogImportService {
             data: {
               ingredientId: ingId,
               locationId,
+              buyUnit: unit,
               pkgSize,
               qtyBought,
               totalPaid,

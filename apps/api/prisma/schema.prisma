@@ -132,6 +132,7 @@ model Ingredient {
   unit           String   // buy unit: oz, ml, g, lb, pump, etc.
   notes          String?
   organizationId Int      @default(1)
+  stockItemId    String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -145,10 +146,26 @@ model Ingredient {
   @@map("ingredients")
 }
 
+model CustomUnit {
+  id             String   @id @default(uuid())
+  name           String
+  label          String
+  family         String
+  baseValue      Float
+  notes          String?
+  organizationId Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([name, organizationId])
+  @@map("custom_units")
+}
+
 model IngredientCost {
   id           String   @id @default(uuid())
   ingredientId String
   locationId   String
+  buyUnit      String
   pkgSize      Float    // size of one package in buy unit
   qtyBought    Int      @default(1)
   totalPaid    Float

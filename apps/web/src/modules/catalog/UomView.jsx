@@ -1,7 +1,8 @@
 // src/modules/catalog/UomView.jsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { tokens as C, ui } from '../../shared/styles.js';
 import { UOM_TABLE, convert, ALL_UNITS } from '../../shared/uom.js';
+import { api } from '../../api.js';
 
 const s = {
   page: { padding: '24px 32px', background: C.cream, minHeight: '100%', maxWidth: 980 },
@@ -35,6 +36,66 @@ const s = {
   note: { ...ui.card, padding: '12px 16px', background: C.white },
   noteTitle: { fontFamily: 'DM Sans', fontSize: 12, fontWeight: 700, color: C.ink, marginBottom: 4 },
   noteText: { fontFamily: 'DM Sans', fontSize: 12, color: C.textSecond, lineHeight: 1.6 },
+  customCard: { ...ui.card, marginTop: 18, overflow: 'hidden' },
+  customHeader: {
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    padding: '10px 14px', borderBottom: `1px solid ${C.beigeLight}`, background: C.white,
+  },
+  customTitle: {
+    fontFamily: 'DM Sans', fontSize: 12, fontWeight: 700,
+    letterSpacing: '0.06em', textTransform: 'uppercase', color: C.textMuted,
+  },
+  customHint: { fontFamily: 'DM Sans', fontSize: 11, color: C.textMuted },
+  customListHead: {
+    display: 'grid', gridTemplateColumns: '1fr 100px 90px 1.6fr auto', gap: 8,
+    padding: '8px 14px', borderBottom: `1px solid ${C.beigeLight}`, background: '#f6efe6',
+    fontFamily: 'DM Sans', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+    textTransform: 'uppercase', color: C.textMuted,
+  },
+  customRow: {
+    display: 'grid', gridTemplateColumns: '1fr 100px 90px 1.6fr auto', gap: 8,
+    padding: '8px 14px', borderBottom: `1px solid ${C.beigeLight}`,
+    alignItems: 'center', fontFamily: 'DM Sans', fontSize: 12, color: C.ink,
+  },
+  customCode: { fontFamily: "'Courier New',monospace", color: C.gold, fontWeight: 700 },
+  deleteBtn: {
+    ...ui.button,
+    background: '#fff3f2',
+    color: '#b53a2d',
+    border: '1px solid #f1b9b2',
+    padding: '4px 8px',
+    fontSize: 11,
+  },
+  form: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 120px 120px 1.4fr 1.4fr auto',
+    gap: 8,
+    alignItems: 'end',
+    padding: '12px 14px',
+    background: C.cream,
+  },
+  formField: { display: 'flex', flexDirection: 'column', gap: 3 },
+  formLabel: {
+    fontFamily: 'DM Sans', fontSize: 10, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: '0.05em', color: C.textMuted,
+  },
+  formInput: {
+    fontFamily: 'DM Sans', fontSize: 13, padding: '6px 10px',
+    border: `1px solid ${C.beigeLight}`, borderRadius: 8,
+    background: C.white, color: C.ink, outline: 'none',
+  },
+  formSelect: {
+    fontFamily: 'DM Sans', fontSize: 13, padding: '6px 10px',
+    border: `1px solid ${C.beigeLight}`, borderRadius: 8,
+    background: C.white, color: C.ink, outline: 'none',
+  },
+  addBtn: {
+    ...ui.button,
+    background: C.ink,
+    color: C.gold,
+    padding: '7px 14px',
+  },
+  err: { fontFamily: 'DM Sans', fontSize: 12, color: '#b53a2d', padding: '0 14px 12px' },
 };
 
 const FAMILIES = [
@@ -47,9 +108,82 @@ export default function UomView() {
   const [fromUnit, setFromUnit] = useState('lb');
   const [toUnit,   setToUnit]   = useState('g');
   const [qty,      setQty]      = useState('5');
+  const [customUnits, setCustomUnits] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [form, setForm] = useState({
+    name: '',
+    family: 'volume',
+    baseValue: '',
+    notes: '',
+    label: '',
+  });
 
-  const factor = convert(fromUnit, toUnit);
-  const result = factor !== null ? (parseFloat(qty) || 0) * factor : null;
+  const loadCustomUnits = () => {
+    api
+      .getCustomUnits()
+      .then((res) => setCustomUnits(res.data ?? []))
+      .catch(() => setCustomUnits([]));
+  };
+
+  useEffect(() => {
+    loadCustomUnits();
+  }, []);
+
+  const mergedUnits = [...ALL_UNITS, ...customUnits.map((u) => u.name)];
+
+  const getUnitEntry = (unitName) => {
+    if (UOM_TABLE[unitName]) return UOM_TABLE[unitName];
+    const custom = customUnits.find((u) => u.name === unitName);
+    if (!custom) return null;
+    return { family: custom.family, base: custom.baseValue, label: custom.label };
+  };
+
+  const convertMerged = (value, from, to) => {
+    if (UOM_TABLE[from] && UOM_TABLE[to]) {
+      const baseFactor = convert(from, to);
+      return baseFactor === null ? null : value * baseFactor;
+    }
+
+    const fromUnitEntry = getUnitEntry(from);
+    const toUnitEntry = getUnitEntry(to);
+    if (!fromUnitEntry || !toUnitEntry) return null;
+    if (fromUnitEntry.family !== toUnitEntry.family) return null;
+    return (value * fromUnitEntry.base) / toUnitEntry.base;
+  };
+
+  const result = convertMerged(parseFloat(qty) || 0, fromUnit, toUnit);
+  const factor = convertMerged(1, fromUnit, toUnit);
+
+  const handleAdd = async () => {
+    if (!form.name.trim() || !form.baseValue || !form.label.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.createCustomUnit({
+        name: form.name.trim().toLowerCase().replace(/\s+/g, '_'),
+        family: form.family,
+        baseValue: parseFloat(form.baseValue),
+        notes: form.notes.trim() || undefined,
+        label: form.label.trim(),
+      });
+      setForm({ name: '', family: 'volume', baseValue: '', notes: '', label: '' });
+      loadCustomUnits();
+    } catch (e) {
+      setError(e.message || 'Failed to add custom unit');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id) => {
+    try {
+      await api.deleteCustomUnit(id);
+      loadCustomUnits();
+    } catch (e) {
+      setError(e.message || 'Failed to delete custom unit');
+    }
+  };
 
   return (
     <div style={s.page}>
@@ -64,11 +198,11 @@ export default function UomView() {
         <div style={s.converterRow}>
           <input style={s.input} type="number" value={qty} step="any" min="0" onChange={e => setQty(e.target.value)} />
           <select style={s.select} value={fromUnit} onChange={e => setFromUnit(e.target.value)}>
-            {ALL_UNITS.map(u => <option key={u} value={u}>{u} — {UOM_TABLE[u]?.label}</option>)}
+            {mergedUnits.map(u => <option key={u} value={u}>{u} — {getUnitEntry(u)?.label ?? u}</option>)}
           </select>
           <span style={s.arrow}>→</span>
           <select style={s.select} value={toUnit} onChange={e => setToUnit(e.target.value)}>
-            {ALL_UNITS.map(u => <option key={u} value={u}>{u} — {UOM_TABLE[u]?.label}</option>)}
+            {mergedUnits.map(u => <option key={u} value={u}>{u} — {getUnitEntry(u)?.label ?? u}</option>)}
           </select>
           <div>
             <div style={s.result(result !== null)}>
@@ -81,6 +215,96 @@ export default function UomView() {
             )}
           </div>
         </div>
+      </div>
+
+      <div style={s.customCard}>
+        <div style={s.customHeader}>
+          <div style={s.customTitle}>Custom units</div>
+          <div style={s.customHint}>Define package units like bottle, bag, jug</div>
+        </div>
+
+        {customUnits.length > 0 && (
+          <div style={s.customListHead}>
+            <div>Unit</div>
+            <div>Family</div>
+            <div>Base</div>
+            <div>Label / Notes</div>
+            <div />
+          </div>
+        )}
+
+        {customUnits.map((unit) => (
+          <div key={unit.id} style={s.customRow}>
+            <div style={s.customCode}>{unit.name}</div>
+            <div>{unit.family}</div>
+            <div>{unit.baseValue}</div>
+            <div>
+              <strong>{unit.label}</strong>
+              {unit.notes ? ` - ${unit.notes}` : ''}
+            </div>
+            <button style={s.deleteBtn} onClick={() => handleDelete(unit.id)}>Delete</button>
+          </div>
+        ))}
+
+        <div style={s.form}>
+          <div style={s.formField}>
+            <span style={s.formLabel}>Unit name</span>
+            <input
+              style={s.formInput}
+              value={form.name}
+              placeholder="bottle"
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+            />
+          </div>
+          <div style={s.formField}>
+            <span style={s.formLabel}>Family</span>
+            <select
+              style={s.formSelect}
+              value={form.family}
+              onChange={(e) => setForm((p) => ({ ...p, family: e.target.value }))}
+            >
+              <option value="volume">volume</option>
+              <option value="weight">weight</option>
+              <option value="count">count</option>
+            </select>
+          </div>
+          <div style={s.formField}>
+            <span style={s.formLabel}>Base value</span>
+            <input
+              style={s.formInput}
+              type="number"
+              value={form.baseValue}
+              placeholder="750"
+              onChange={(e) => setForm((p) => ({ ...p, baseValue: e.target.value }))}
+            />
+          </div>
+          <div style={s.formField}>
+            <span style={s.formLabel}>Label</span>
+            <input
+              style={s.formInput}
+              value={form.label}
+              placeholder="Syrup bottle (750ml)"
+              onChange={(e) => setForm((p) => ({ ...p, label: e.target.value }))}
+            />
+          </div>
+          <div style={s.formField}>
+            <span style={s.formLabel}>Notes</span>
+            <input
+              style={s.formInput}
+              value={form.notes}
+              placeholder="optional"
+              onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+            />
+          </div>
+          <button
+            style={{ ...s.addBtn, opacity: saving ? 0.6 : 1 }}
+            onClick={handleAdd}
+            disabled={saving}
+          >
+            {saving ? 'Saving...' : '+ Add'}
+          </button>
+        </div>
+        {error && <div style={s.err}>{error}</div>}
       </div>
 
       {/* Reference tables */}

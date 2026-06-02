@@ -1,8 +1,9 @@
 // src/modules/catalog/IngredientsView.jsx
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { tokens as C, ui } from '../../shared/styles.js';
 import { ALL_UNITS, UOM_TABLE } from '../../shared/uom.js';
 import { api } from '../../api.js';
+import IngredientLinkPanel from './IngredientLinkPanel.jsx';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 const fmt4 = n => `$${Number(n).toFixed(4)}`;
@@ -10,12 +11,62 @@ const fmt2 = n => `$${Number(n).toFixed(2)}`;
 
 function latestCost(ing) { return ing.costs?.[0] ?? null; }
 function latestUnitCost(ing) { return latestCost(ing)?.unitCost ?? null; }
+function latestBuyUnit(ing) { return latestCost(ing)?.buyUnit ?? ing.unit; }
 function latestSource(ing) {
   const sup = latestCost(ing)?.supplier?.name;
   return sup ?? (ing.notes ?? '—');
 }
 
+function recipeUnitsLabel(ing) {
+  const units = Array.from(
+    new Set((ing.recipeIngredients ?? []).map((ri) => ri.useUnit).filter(Boolean)),
+  );
+  return units.length ? units.join(', ') : '—';
+}
+
 const isAmazon = ing => latestSource(ing).toLowerCase().includes('amazon');
+
+function familyBaseUnit(family) {
+  if (family === 'volume') return 'ml';
+  if (family === 'weight') return 'g';
+  return 'each';
+}
+
+function resolveUnitMeta(unit, customUnits) {
+  const normalized = String(unit || '').trim().toLowerCase();
+  if (!normalized) return null;
+
+  const builtIn = UOM_TABLE[normalized];
+  if (builtIn) {
+    return {
+      name: normalized,
+      label: builtIn.label,
+      family: builtIn.family,
+      basePerUnit: builtIn.base,
+      baseUnit: familyBaseUnit(builtIn.family),
+    };
+  }
+
+  const custom = (customUnits || []).find((u) => u.name === normalized);
+  if (!custom) return null;
+  return {
+    name: normalized,
+    label: custom.label || custom.name,
+    family: custom.family,
+    basePerUnit: Number(custom.baseValue),
+    baseUnit: familyBaseUnit(custom.family),
+  };
+}
+
+function convertQty(qty, fromUnit, toUnit, customUnits) {
+  if (!Number.isFinite(qty)) return null;
+  const from = resolveUnitMeta(fromUnit, customUnits);
+  const to = resolveUnitMeta(toUnit, customUnits);
+  if (!from || !to || from.family !== to.family) return null;
+
+  const inBase = qty * from.basePerUnit;
+  return inBase / to.basePerUnit;
+}
 
 // ─── styles ──────────────────────────────────────────────────────────────────
 const s = {
@@ -126,7 +177,7 @@ const s = {
 };
 
 // ─── IngRow ──────────────────────────────────────────────────────────────────
-function IngRow({ ing, idx, isEven, canDrag, onAddCost, onDragStart, onDragEnd, onDragOver }) {
+function IngRow({ ing, idx, isEven, canDrag, onAddCost, onLinkStock, onDragStart, onDragEnd, onDragOver }) {
   const uc   = latestUnitCost(ing);
   const lc   = latestCost(ing);
   const az   = isAmazon(ing);
@@ -146,7 +197,8 @@ function IngRow({ ing, idx, isEven, canDrag, onAddCost, onDragStart, onDragEnd, 
         {ing.name}
         <span style={s.tag(az ? 'az' : 'mn')}>{az ? 'Amazon' : 'manual'}</span>
       </td>
-      <td style={{ ...s.td, color: C.textMuted }}>{ing.unit}</td>
+      <td style={{ ...s.td, color: C.textMuted }}>{recipeUnitsLabel(ing)}</td>
+      <td style={{ ...s.td, color: C.textMuted }}>{latestBuyUnit(ing)}</td>
       <td style={{ ...s.td, fontFamily: "'Courier New',monospace", fontSize: 12 }}>
         {lc ? `${lc.pkgSize} × ${lc.qtyBought}` : '—'}
       </td>
@@ -163,6 +215,16 @@ function IngRow({ ing, idx, isEven, canDrag, onAddCost, onDragStart, onDragEnd, 
         {latestSource(ing)}
       </td>
       <td style={s.td}>
+        <button
+          style={{
+            fontFamily: 'DM Sans', fontSize: 11, padding: '3px 10px',
+            background: 'transparent', color: C.ink, border: `1px solid ${C.beigeLight}`,
+            borderRadius: 4, cursor: 'pointer', marginRight: 6,
+          }}
+          onClick={() => onLinkStock(ing)}
+        >
+          ⟷ {ing.stockItemId ? 'Linked' : 'Link stock'}
+        </button>
         <button style={{ fontFamily: 'DM Sans', fontSize: 11, padding: '3px 10px', background: 'transparent', color: C.gold, border: `1px solid ${C.gold}`, borderRadius: 4, cursor: 'pointer' }} onClick={() => onAddCost(ing)}>
           + Cost
         </button>
@@ -173,13 +235,72 @@ function IngRow({ ing, idx, isEven, canDrag, onAddCost, onDragStart, onDragEnd, 
 
 // ─── AddCostModal ─────────────────────────────────────────────────────────────
 function AddCostModal({ ingredient, locationId, onClose, onSaved }) {
-  const [form, setForm] = useState({ pkgSize: '', qtyBought: '1', totalPaid: '', purchaseDate: new Date().toISOString().split('T')[0], invoiceRef: '' });
+  const [form, setForm] = useState({
+    buyUnit: ingredient.unit,
+    pkgSize: '',
+    qtyBought: '1',
+    totalPaid: '',
+    purchaseDate: new Date().toISOString().split('T')[0],
+    invoiceRef: '',
+  });
+  const [customUnits, setCustomUnits] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
   const set = k => e => setForm(p => ({ ...p, [k]: e.target.value }));
 
-  const computed = (form.pkgSize && form.qtyBought && form.totalPaid)
-    ? parseFloat(form.totalPaid) / (parseFloat(form.pkgSize) * parseFloat(form.qtyBought))
+  useEffect(() => {
+    let active = true;
+    api
+      .getCustomUnits()
+      .then((res) => {
+        if (active) {
+          setCustomUnits(res.data ?? []);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setCustomUnits([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const ingredientMeta = useMemo(
+    () => resolveUnitMeta(ingredient.unit, customUnits),
+    [ingredient.unit, customUnits],
+  );
+
+  const buyUnitOptions = useMemo(() => {
+    if (!ingredientMeta) {
+      return [ingredient.unit];
+    }
+
+    const familyBuiltIns = ALL_UNITS.filter((u) => UOM_TABLE[u]?.family === ingredientMeta.family);
+    const familyCustom = (customUnits || [])
+      .filter((u) => u.family === ingredientMeta.family)
+      .map((u) => u.name);
+
+    return Array.from(new Set([...familyBuiltIns, ...familyCustom]));
+  }, [customUnits, ingredient.unit, ingredientMeta]);
+
+  const parsedPkgSize = parseFloat(form.pkgSize);
+  const parsedQtyBought = parseFloat(form.qtyBought);
+  const parsedTotalPaid = parseFloat(form.totalPaid);
+  const pkgSizeInIngredientUnit = convertQty(parsedPkgSize, form.buyUnit, ingredient.unit, customUnits);
+
+  const computed = (
+    Number.isFinite(parsedTotalPaid) &&
+    Number.isFinite(parsedQtyBought) && parsedQtyBought > 0 &&
+    Number.isFinite(pkgSizeInIngredientUnit) && pkgSizeInIngredientUnit > 0
+  )
+    ? parsedTotalPaid / (pkgSizeInIngredientUnit * parsedQtyBought)
+    : null;
+
+  const conversionHint = Number.isFinite(pkgSizeInIngredientUnit)
+    ? `${parsedPkgSize || 0} ${form.buyUnit} = ${pkgSizeInIngredientUnit.toFixed(4)} ${ingredient.unit}`
     : null;
 
   const handleSave = async () => {
@@ -188,9 +309,10 @@ function AddCostModal({ ingredient, locationId, onClose, onSaved }) {
     setError(null);
     try {
       await api.addIngredientCost(ingredient.id, locationId, {
-        pkgSize:      parseFloat(form.pkgSize),
-        qtyBought:    parseInt(form.qtyBought),
-        totalPaid:    parseFloat(form.totalPaid),
+        buyUnit:      form.buyUnit,
+        pkgSize:      pkgSizeInIngredientUnit,
+        qtyBought:    parseInt(form.qtyBought, 10),
+        totalPaid:    parsedTotalPaid,
         purchaseDate: form.purchaseDate,
         invoiceRef:   form.invoiceRef || undefined,
       });
@@ -208,11 +330,21 @@ function AddCostModal({ ingredient, locationId, onClose, onSaved }) {
         <div style={s.modalHandle} />
         <div style={s.modalTitle}>Add cost — {ingredient.name}</div>
         <div style={{ fontFamily: 'DM Sans', fontSize: 12, color: C.textMuted, marginBottom: 14 }}>
-          Buy unit: <strong>{ingredient.unit}</strong>. Enter the purchase details from your invoice.
+          Recipe/default unit is <strong>{ingredient.unit}</strong>. Choose the purchase unit from your invoice.
         </div>
         <div style={s.modalGrid}>
           <div style={s.modalField}>
-            <span style={s.modalLabel}>Package size ({ingredient.unit})</span>
+            <span style={s.modalLabel}>Buy unit</span>
+            <select style={s.modalInput} value={form.buyUnit} onChange={set('buyUnit')}>
+              {buyUnitOptions.map((u) => (
+                <option key={u} value={u}>
+                  {u} — {(UOM_TABLE[u]?.label) || (customUnits.find((cu) => cu.name === u)?.label) || u}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={s.modalField}>
+            <span style={s.modalLabel}>Package size ({form.buyUnit})</span>
             <input style={s.modalInput} type="number" value={form.pkgSize} onChange={set('pkgSize')} placeholder="e.g. 64" />
           </div>
           <div style={s.modalField}>
@@ -228,6 +360,16 @@ function AddCostModal({ ingredient, locationId, onClose, onSaved }) {
             <input style={s.modalInput} type="date" value={form.purchaseDate} onChange={set('purchaseDate')} />
           </div>
         </div>
+        {form.pkgSize && conversionHint && (
+          <div style={{ fontFamily: 'DM Sans', fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+            Conversion: {conversionHint}
+          </div>
+        )}
+        {form.pkgSize && !conversionHint && (
+          <div style={{ fontFamily: 'DM Sans', fontSize: 12, color: '#d32f2f', marginBottom: 10 }}>
+            Cannot convert {form.buyUnit} to {ingredient.unit}. Pick a compatible unit or define a matching custom unit.
+          </div>
+        )}
         <div style={s.modalField}>
           <span style={s.modalLabel}>Invoice ref (optional)</span>
           <input style={{ ...s.modalInput, width: '100%', boxSizing: 'border-box', marginBottom: 14 }} type="text" value={form.invoiceRef} onChange={set('invoiceRef')} placeholder="AMZ-2026-05 or WB-001" />
@@ -262,6 +404,7 @@ export default function IngredientsView({ locationId, user }) {
   const [sortCol,    setSortCol]      = useState(null);
   const [sortDir,    setSortDir]      = useState('asc');
   const [addModal,   setAddModal]     = useState(null);
+  const [linkingIng, setLinkingIng]   = useState(null);
   const [newIng,     setNewIng]       = useState({ name: '', unit: 'oz', notes: '' });
   const [adding,     setAdding]       = useState(false);
   const dragId  = useRef(null);
@@ -307,7 +450,8 @@ export default function IngredientsView({ locationId, user }) {
   const filtered = ingredients.filter(i =>
     !search ||
     i.name.toLowerCase().includes(search.toLowerCase()) ||
-    i.unit.toLowerCase().includes(search.toLowerCase())
+    i.unit.toLowerCase().includes(search.toLowerCase()) ||
+    recipeUnitsLabel(i).toLowerCase().includes(search.toLowerCase())
   );
 
   const sorted = sortCol ? [...filtered].sort((a, b) => {
@@ -345,6 +489,7 @@ export default function IngredientsView({ locationId, user }) {
       key={ing.id} ing={ing} idx={idx} isEven={idx % 2 === 0}
       canDrag={canDrag}
       onAddCost={setAddModal}
+      onLinkStock={setLinkingIng}
       onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver}
     />
   ));
@@ -377,6 +522,9 @@ export default function IngredientsView({ locationId, user }) {
                 <th style={{ ...s.th, ...s.thSort }} onClick={() => toggleSort('name')}>
                   Ingredient <SortArrow col="name" />
                 </th>
+                <th style={s.th}>
+                  Recipe unit(s)
+                </th>
                 <th style={{ ...s.th, ...s.thSort }} onClick={() => toggleSort('unit')}>
                   Buy unit <SortArrow col="unit" />
                 </th>
@@ -393,17 +541,17 @@ export default function IngredientsView({ locationId, user }) {
             </thead>
             <tbody>
               {loading && (
-                <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>Loading ingredients…</td></tr>
+                <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>Loading ingredients…</td></tr>
               )}
               {!loading && sorted.length === 0 && (
-                <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>
+                <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: C.textMuted, padding: 28 }}>
                   No ingredients yet. Add one below.
                 </td></tr>
               )}
               {!loading && grouped
                 ? grouped.map(({ key, items }) => [
                     <tr key={`gh-${key}`}>
-                      <td colSpan={8} style={{ ...s.groupHeader }}>
+                      <td colSpan={9} style={{ ...s.groupHeader }}>
                         <span>{key}</span>
                         <span style={s.groupCount}>{items.length} item{items.length !== 1 ? 's' : ''}</span>
                       </td>
@@ -453,6 +601,18 @@ export default function IngredientsView({ locationId, user }) {
           locationId={locationId}
           onClose={() => setAddModal(null)}
           onSaved={() => { setAddModal(null); load(); }}
+        />
+      )}
+
+      {linkingIng && (
+        <IngredientLinkPanel
+          ingredient={linkingIng}
+          locationId={locationId}
+          onClose={() => setLinkingIng(null)}
+          onSaved={() => {
+            setLinkingIng(null);
+            load();
+          }}
         />
       )}
     </div>

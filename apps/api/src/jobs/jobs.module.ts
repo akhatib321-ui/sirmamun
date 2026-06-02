@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Queues } from './queue-names';
 import { MatchSalesItemsProcessor } from './processors/match-sales-items.processor';
 import { GenerateReorderProcessor } from './processors/generate-reorder.processor';
+import { InventoryModule } from '../modules/inventory/inventory.module';
 
 /**
  * @Global() — queues are available for injection across all modules
@@ -17,6 +18,7 @@ import { GenerateReorderProcessor } from './processors/generate-reorder.processo
 @Global()
 @Module({
   imports: [
+    InventoryModule,
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

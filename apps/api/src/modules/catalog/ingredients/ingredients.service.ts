@@ -20,7 +20,10 @@ export class IngredientsService {
     const [items, total] = await Promise.all([
       this.prisma.ingredient.findMany({
         where: { organizationId },
-        include: { costs: { orderBy: { purchaseDate: 'desc' }, take: 1 } },
+        include: {
+          costs: { orderBy: { purchaseDate: 'desc' }, take: 1 },
+          recipeIngredients: { select: { useUnit: true } },
+        },
         orderBy: { name: 'asc' },
         skip: pagination.skip,
         take: pagination.limit,
@@ -88,6 +91,7 @@ export class IngredientsService {
       data: {
         ingredientId,
         locationId,
+        buyUnit: dto.buyUnit,
         pkgSize: dto.pkgSize,
         qtyBought: dto.qtyBought,
         totalPaid: dto.totalPaid,

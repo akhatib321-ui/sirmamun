@@ -115,6 +115,10 @@ export const api = {
   getIngredients: (page = 1, limit = 50)             => req('GET',    `/catalog/ingredients?page=${page}&limit=${clampPageLimit(limit)}`),
   createIngredient: (dto)                            => req('POST',   '/catalog/ingredients', dto),
   addIngredientCost: (ingredientId, locationId, dto) => req('POST',   `/catalog/ingredients/${ingredientId}/costs/${locationId}`, dto),
+  getCustomUnits: ()                                  => req('GET',    '/catalog/custom-units'),
+  createCustomUnit: (dto)                             => req('POST',   '/catalog/custom-units', dto),
+  updateCustomUnit: (id, dto)                         => req('PATCH',  `/catalog/custom-units/${id}`, dto),
+  deleteCustomUnit: (id)                              => req('DELETE', `/catalog/custom-units/${id}`),
 
   getRecipes: (locationId, page = 1, limit = 100)    => req('GET',    `/catalog/recipes/${locationId}?page=${page}&limit=${clampPageLimit(limit)}`),
   createRecipe: (dto)                                => req('POST',   '/catalog/recipes', dto),
@@ -160,6 +164,16 @@ export const api = {
   recalculateAggregateReorder: (windowDays = 7)      => req('POST',   `/inventory/reorder/aggregate/recalculate?windowDays=${windowDays}`),
   buildAggregateOrder: (ingredientIds)               => req('POST',   '/inventory/reorder/aggregate/build-order', { ingredientIds }),
   markAggregateOrdered: (payload)                    => req('POST',   '/inventory/reorder/aggregate/mark-ordered', payload),
+  getStockChainItems: ()                              => req('GET',    '/inventory/stock-chain/items'),
+  resolveStockChain: (ingredientId, locationId, stockItemId) => {
+    const params = new URLSearchParams();
+    if (locationId) params.set('locationId', locationId);
+    if (stockItemId) params.set('stockItemId', stockItemId);
+    const query = params.toString();
+    return req('GET', `/inventory/stock-chain/resolve/${ingredientId}${query ? `?${query}` : ''}`);
+  },
+  linkIngredientStock: (ingredientId, stockItemId)    => req('POST',   `/inventory/stock-chain/link/${ingredientId}`, { stockItemId }),
+  unlinkIngredientStock: (ingredientId)               => req('DELETE', `/inventory/stock-chain/link/${ingredientId}`),
 
   getSalesReports: (locationId, page = 1, limit = 25) => req('GET',   `/inventory/sales/${locationId}?page=${page}&limit=${limit}`),
   getUnmatchedItems: (reportId)                      => req('GET',    `/inventory/sales/reports/${reportId}/unmatched`),

@@ -2,6 +2,9 @@
 import { IsNumber, IsPositive, IsString, IsOptional, IsDateString, IsInt, Min } from 'class-validator';
 
 export class AddIngredientCostDto {
+  @IsString()
+  buyUnit: string;
+
   @IsNumber()
   @IsPositive()
   pkgSize: number;        // size of one package in ingredient's buy unit
