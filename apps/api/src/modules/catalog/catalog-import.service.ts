@@ -123,7 +123,7 @@ export class CatalogImportService {
         const existing = await this.prisma.recipe.findFirst({
           where: {
             name: rec.name,
-            locationId,
+            locationId: null,
             organizationId: user.organizationId,
           },
         });
@@ -143,7 +143,7 @@ export class CatalogImportService {
               name: rec.name,
               category: rec.category,
               sellPrice: rec.sellPrice ?? 0,
-              locationId,
+              locationId: null,
               organizationId: user.organizationId,
             },
           });

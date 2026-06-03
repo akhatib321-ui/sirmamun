@@ -13,8 +13,9 @@ export class CreateRecipeDto {
   @IsPositive()
   sellPrice?: number;
 
+  @IsOptional()
   @IsString()
-  locationId: string;
+  locationId?: string;
 
   @IsOptional()
   @IsBoolean()

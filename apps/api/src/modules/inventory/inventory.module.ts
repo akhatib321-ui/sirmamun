@@ -12,6 +12,8 @@ import { AggregateReorderService } from './aggregate-reorder.service';
 import { AggregateReorderController } from './aggregate-reorder.controller';
 import { StockChainService } from './stock-chain.service';
 import { StockChainController } from './stock-chain.controller';
+import { StockStatusService } from './stock-status.service';
+import { StockStatusController } from './stock-status.controller';
 
 /**
  * Inventory module owns:
@@ -36,6 +38,7 @@ import { StockChainController } from './stock-chain.controller';
     SuppliersService,
     AggregateReorderService,
     StockChainService,
+    StockStatusService,
   ],
   controllers: [
     SalesController,
@@ -43,6 +46,7 @@ import { StockChainController } from './stock-chain.controller';
     SuppliersController,
     AggregateReorderController,
     StockChainController,
+    StockStatusController,
   ],
   exports: [ReorderService, StockChainService],
 })

@@ -113,7 +113,9 @@ export const api = {
   createSupplier: (dto)                              => req('POST',   '/inventory/suppliers', dto),
 
   getIngredients: (page = 1, limit = 50)             => req('GET',    `/catalog/ingredients?page=${page}&limit=${clampPageLimit(limit)}`),
+  getIngredient: (id)                                 => req('GET',    `/catalog/ingredients/${id}`),
   createIngredient: (dto)                            => req('POST',   '/catalog/ingredients', dto),
+  updateIngredient: (id, dto)                        => req('PATCH',  `/catalog/ingredients/${id}`, dto),
   addIngredientCost: (ingredientId, locationId, dto) => req('POST',   `/catalog/ingredients/${ingredientId}/costs/${locationId}`, dto),
   getCustomUnits: ()                                  => req('GET',    '/catalog/custom-units'),
   createCustomUnit: (dto)                             => req('POST',   '/catalog/custom-units', dto),
@@ -164,6 +166,8 @@ export const api = {
   recalculateAggregateReorder: (windowDays = 7)      => req('POST',   `/inventory/reorder/aggregate/recalculate?windowDays=${windowDays}`),
   buildAggregateOrder: (ingredientIds)               => req('POST',   '/inventory/reorder/aggregate/build-order', { ingredientIds }),
   markAggregateOrdered: (payload)                    => req('POST',   '/inventory/reorder/aggregate/mark-ordered', payload),
+  getStockStatus: (windowDays = 7)                   => req('GET',    `/inventory/stock-status?windowDays=${windowDays}`),
+  getStockStatusSummary: (windowDays = 7)            => req('GET',    `/inventory/stock-status/summary?windowDays=${windowDays}`),
   getStockChainItems: ()                              => req('GET',    '/inventory/stock-chain/items'),
   resolveStockChain: (ingredientId, locationId, stockItemId) => {
     const params = new URLSearchParams();

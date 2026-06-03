@@ -7,11 +7,13 @@ import Matching from './Matching.jsx';
 import AggregateReorderDetail from './AggregateReorderDetail.jsx';
 import AggregateOrderList from './AggregateOrderList.jsx';
 
-export default function InventoryShell({ subView, setSubView, user }) {
+export default function InventoryShell({ subView, setSubView, user, legacyReorderContent = null }) {
   const [activeLocationId, setActiveLocationId] = useState('');
   const [activeReportId, setActiveReportId] = useState('');
   const [aggregateData, setAggregateData] = useState(null);
   const [aggregateOrderData, setAggregateOrderData] = useState(null);
+  const [showCardsSection, setShowCardsSection] = useState(true);
+  const [showLegacySection, setShowLegacySection] = useState(true);
 
   const view = useMemo(() => {
     if (!subView) return 'reorder';
@@ -85,8 +87,9 @@ export default function InventoryShell({ subView, setSubView, user }) {
     );
   }
 
-  return (
+  const overview = (
     <ReorderOverview
+      embedded={view === 'reorder' && !!legacyReorderContent}
       onOpenDetail={(locationId, nextAggregateData = null) => {
         if (locationId === 'aggregate') {
           setAggregateData(nextAggregateData);
@@ -112,4 +115,51 @@ export default function InventoryShell({ subView, setSubView, user }) {
       onOpenMatching={() => setSubView('matching')}
     />
   );
+
+  if (view === 'reorder' && legacyReorderContent) {
+    return (
+      <>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 20px 0', background: '#1f2021' }}>
+          <button
+            onClick={() => setShowCardsSection((v) => !v)}
+            style={{
+              border: '1px solid #4d5155',
+              background: '#2b2c2d',
+              color: '#d7c7ad',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            {showCardsSection ? 'Hide Cards Section' : 'Show Cards Section'}
+          </button>
+          <button
+            onClick={() => setShowLegacySection((v) => !v)}
+            style={{
+              border: '1px solid #4d5155',
+              background: '#2b2c2d',
+              color: '#d7c7ad',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            {showLegacySection ? 'Hide Legacy Reorder Section' : 'Show Legacy Reorder Section'}
+          </button>
+        </div>
+
+        {showCardsSection ? overview : null}
+
+        {showLegacySection ? (
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {legacyReorderContent}
+          </div>
+        ) : null}
+      </>
+    );
+  }
+
+  return overview;
 }

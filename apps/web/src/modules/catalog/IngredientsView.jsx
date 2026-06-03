@@ -4,6 +4,7 @@ import { tokens as C, ui } from '../../shared/styles.js';
 import { ALL_UNITS, UOM_TABLE } from '../../shared/uom.js';
 import { api } from '../../api.js';
 import IngredientLinkPanel from './IngredientLinkPanel.jsx';
+import IngredientChainForm from './IngredientChainForm.jsx';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 const fmt4 = n => `$${Number(n).toFixed(4)}`;
@@ -177,7 +178,7 @@ const s = {
 };
 
 // ─── IngRow ──────────────────────────────────────────────────────────────────
-function IngRow({ ing, idx, isEven, canDrag, onAddCost, onLinkStock, onDragStart, onDragEnd, onDragOver }) {
+function IngRow({ ing, idx, isEven, canDrag, onAddCost, onEditUnit, onLinkStock, onDragStart, onDragEnd, onDragOver }) {
   const uc   = latestUnitCost(ing);
   const lc   = latestCost(ing);
   const az   = isAmazon(ing);
@@ -194,7 +195,10 @@ function IngRow({ ing, idx, isEven, canDrag, onAddCost, onLinkStock, onDragStart
         {canDrag ? '⠿' : '·'}
       </td>
       <td style={s.td}>
-        {ing.name}
+        <div style={{ fontWeight: 600 }}>{ing.name}</div>
+        <div style={{ fontFamily: "'Courier New', monospace", fontSize: 11, color: C.gold }}>
+          {ing.unit}
+        </div>
         <span style={s.tag(az ? 'az' : 'mn')}>{az ? 'Amazon' : 'manual'}</span>
       </td>
       <td style={{ ...s.td, color: C.textMuted }}>{recipeUnitsLabel(ing)}</td>
@@ -218,6 +222,16 @@ function IngRow({ ing, idx, isEven, canDrag, onAddCost, onLinkStock, onDragStart
         <button
           style={{
             fontFamily: 'DM Sans', fontSize: 11, padding: '3px 10px',
+            background: 'transparent', color: C.warmM, border: `1px solid ${C.beigeLight}`,
+            borderRadius: 4, cursor: 'pointer', marginRight: 6,
+          }}
+          onClick={() => onEditUnit(ing)}
+        >
+          Edit unit
+        </button>
+        <button
+          style={{
+            fontFamily: 'DM Sans', fontSize: 11, padding: '3px 10px',
             background: 'transparent', color: C.ink, border: `1px solid ${C.beigeLight}`,
             borderRadius: 4, cursor: 'pointer', marginRight: 6,
           }}
@@ -230,6 +244,70 @@ function IngRow({ ing, idx, isEven, canDrag, onAddCost, onLinkStock, onDragStart
         </button>
       </td>
     </tr>
+  );
+}
+
+function EditIngredientUnitModal({ ingredient, unitOptions, onClose, onSaved }) {
+  const [editingIngredient, setEditingIngredient] = useState({
+    unit: ingredient.unit,
+    purchaseUnit: ingredient.purchaseUnit ?? null,
+    purchaseToBase: ingredient.purchaseToBase ?? null,
+    stockItemId: ingredient.stockItemId ?? null,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    if (!editingIngredient.unit) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.updateIngredient(ingredient.id, {
+        unit: editingIngredient.unit,
+        purchaseUnit: editingIngredient.purchaseUnit || null,
+        purchaseToBase: editingIngredient.purchaseToBase ?? null,
+      });
+      onSaved?.();
+    } catch (e) {
+      setError(e.message || 'Failed to update unit');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={s.overlay} onClick={onClose}>
+      <div style={s.modal} onClick={e => e.stopPropagation()}>
+        <div style={s.modalHandle} />
+        <div style={s.modalTitle}>Edit unit — {ingredient.name}</div>
+        <div style={{ marginBottom: 12, fontFamily: 'DM Sans', fontSize: 12, color: C.textMuted }}>
+          Update the ingredient buy/use unit directly here.
+        </div>
+        <div style={s.modalField}>
+          <span style={s.modalLabel}>Unit</span>
+          <select
+            style={s.modalInput}
+            value={editingIngredient.unit}
+            onChange={(e) => setEditingIngredient((prev) => ({ ...prev, unit: e.target.value }))}
+          >
+            {unitOptions.map((u) => (
+              <option key={u.value} value={u.value}>{u.label}</option>
+            ))}
+          </select>
+        </div>
+        <IngredientChainForm
+          ingredient={editingIngredient}
+          onChange={(patch) => setEditingIngredient((prev) => ({ ...prev, ...patch }))}
+        />
+        {error && <div style={{ marginTop: 10, fontFamily: 'DM Sans', fontSize: 12, color: '#d32f2f' }}>{error}</div>}
+        <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+          <button style={{ fontFamily: 'DM Sans', fontSize: 13, padding: '8px 14px', background: 'transparent', color: C.ink, border: `1px solid ${C.beigeLight}`, borderRadius: 8, cursor: 'pointer', flex: 1 }} onClick={onClose}>Cancel</button>
+          <button style={{ ...ui.button, flex: 1, opacity: saving ? 0.5 : 1 }} onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : 'Save unit'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -404,7 +482,9 @@ export default function IngredientsView({ locationId, user }) {
   const [sortCol,    setSortCol]      = useState(null);
   const [sortDir,    setSortDir]      = useState('asc');
   const [addModal,   setAddModal]     = useState(null);
+  const [editUnitIng,setEditUnitIng]  = useState(null);
   const [linkingIng, setLinkingIng]   = useState(null);
+  const [customUnits,setCustomUnits]  = useState([]);
   const [newIng,     setNewIng]       = useState({ name: '', unit: 'oz', notes: '' });
   const [adding,     setAdding]       = useState(false);
   const dragId  = useRef(null);
@@ -418,6 +498,20 @@ export default function IngredientsView({ locationId, user }) {
   };
 
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    api.getCustomUnits()
+      .then((res) => setCustomUnits(res.data ?? []))
+      .catch(() => setCustomUnits([]));
+  }, []);
+
+  const unitOptions = useMemo(() => {
+    const built = ALL_UNITS.map((u) => ({ value: u, label: `${u} — ${UOM_TABLE[u]?.label || u}` }));
+    const custom = (customUnits || [])
+      .filter((u) => !ALL_UNITS.includes(u.name))
+      .map((u) => ({ value: u.name, label: `${u.name} — ${u.label || u.name}` }));
+    return [...built, ...custom];
+  }, [customUnits]);
 
   const handleAdd = async () => {
     if (!newIng.name.trim()) return;
@@ -489,6 +583,7 @@ export default function IngredientsView({ locationId, user }) {
       key={ing.id} ing={ing} idx={idx} isEven={idx % 2 === 0}
       canDrag={canDrag}
       onAddCost={setAddModal}
+      onEditUnit={setEditUnitIng}
       onLinkStock={setLinkingIng}
       onDragStart={onDragStart} onDragEnd={onDragEnd} onDragOver={onDragOver}
     />
@@ -575,7 +670,7 @@ export default function IngredientsView({ locationId, user }) {
             <div style={s.addField}>
               <span style={s.addLabel}>Buy unit</span>
               <select style={s.addSelect} value={newIng.unit} onChange={e => setNewIng(p => ({ ...p, unit: e.target.value }))}>
-                {ALL_UNITS.map(u => <option key={u} value={u}>{u} — {UOM_TABLE[u]?.label}</option>)}
+                {unitOptions.map((u) => <option key={u.value} value={u.value}>{u.label}</option>)}
               </select>
             </div>
             <div style={{ ...s.addField, gridColumn: 'span 4' }}>
@@ -601,6 +696,18 @@ export default function IngredientsView({ locationId, user }) {
           locationId={locationId}
           onClose={() => setAddModal(null)}
           onSaved={() => { setAddModal(null); load(); }}
+        />
+      )}
+
+      {editUnitIng && (
+        <EditIngredientUnitModal
+          ingredient={editUnitIng}
+          unitOptions={unitOptions}
+          onClose={() => setEditUnitIng(null)}
+          onSaved={() => {
+            setEditUnitIng(null);
+            load();
+          }}
         />
       )}
 

@@ -181,7 +181,7 @@ export class AuthService {
     await this.prisma.user.create({
       data: {
         name: 'Admin',
-        pin: await this.hashPin('0000'),
+        pin: await this.hashPin('2522'),
         role: 'admin',
         locationIds: this.prisma.serializeJson([]),
       },

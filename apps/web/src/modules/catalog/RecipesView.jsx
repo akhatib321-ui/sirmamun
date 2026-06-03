@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { tokens as C, ui } from '../../shared/styles.js';
 import {
   cpuIn,
@@ -66,11 +66,12 @@ function IngredientCard({ ri, ingMap, onRemove }) {
   );
 }
 
-function RecipeDetail({ recipe, ingMap, allIngredients, locationId, isMobile, onUpdated }) {
+function RecipeDetail({ recipe, ingMap, allIngredients, locationId, locations, isMobile, onUpdated }) {
   const [price, setPrice] = useState(recipe.sellPrice ?? 0);
   const [addIng, setAddIng] = useState('');
   const [addQty, setAddQty] = useState('1');
   const [addUnit, setAddUnit] = useState('');
+  const [scopeLocationId, setScopeLocationId] = useState('');
   const [saving, setSaving] = useState(false);
 
   const selectedIng = allIngredients.find((i) => i.id === addIng);
@@ -98,10 +99,12 @@ function RecipeDetail({ recipe, ingMap, allIngredients, locationId, isMobile, on
         ingredientId: addIng,
         quantity: parseFloat(addQty),
         useUnit: addUnit || selectedIng?.unit,
+        locationId: scopeLocationId || undefined,
       });
       setAddIng('');
       setAddQty('1');
       setAddUnit('');
+      setScopeLocationId('');
       onUpdated();
     } catch {
       // no-op
@@ -196,6 +199,13 @@ function RecipeDetail({ recipe, ingMap, allIngredients, locationId, isMobile, on
       ) : (
         <div style={{ fontSize: 12, color: C.colors.warn, marginBottom: 14 }}>No ingredients yet — add below to calculate margin</div>
       )}
+
+      <div style={{ ...ui.card, overflow: 'hidden', marginBottom: 14, padding: '10px 12px' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.textMuted, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Recipe scope</div>
+        <div style={{ fontSize: 13, color: C.textSecond }}>
+          {recipe.locationId ? `Scoped to ${locations.find((loc) => loc.id === recipe.locationId)?.name || 'a location'}` : 'Global recipe'}
+        </div>
+      </div>
 
       <div style={{ ...ui.card, overflow: 'hidden', marginBottom: 14 }}>
         {isMobile ? (
@@ -304,6 +314,19 @@ function RecipeDetail({ recipe, ingMap, allIngredients, locationId, isMobile, on
               {selectedIng ? compatibleUnits(selectedIng.unit).map((u) => <option key={u} value={u}>{u}</option>) : <option value=''>—</option>}
             </select>
           </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 180, flex: isMobile ? '1 1 100%' : 1 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase', color: C.textMuted }}>Scope</span>
+            <select
+              style={{ fontSize: 13, padding: '6px 8px', border: `1px solid ${C.beigeLight}`, borderRadius: 8, background: C.white, color: C.ink, outline: 'none', width: '100%' }}
+              value={scopeLocationId}
+              onChange={(e) => setScopeLocationId(e.target.value)}
+            >
+              <option value=''>Global</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>{loc.name}</option>
+              ))}
+            </select>
+          </div>
           <button
             style={{ ...ui.button, alignSelf: 'flex-end', background: C.colors.ink, color: '#fff', opacity: saving ? 0.6 : 1 }}
             onClick={handleAdd}
@@ -317,7 +340,7 @@ function RecipeDetail({ recipe, ingMap, allIngredients, locationId, isMobile, on
   );
 }
 
-function RecipeList({ recipes, ingMap, selected, isMobile, onSelect, onCreated, locationId }) {
+function RecipeList({ recipes, ingMap, selected, isMobile, onSelect, onCreated, locationId, ingredientFilter, onClearIngredientFilter }) {
   const [search, setSearch] = useState('');
   const [cat, setCat] = useState('');
   const [newName, setNewName] = useState('');
@@ -329,10 +352,10 @@ function RecipeList({ recipes, ingMap, selected, isMobile, onSelect, onCreated, 
   );
 
   async function handleCreate() {
-    if (!newName.trim() || !locationId) return;
+    if (!newName.trim()) return;
     setAdding(true);
     try {
-      const res = await api.createRecipe({ name: newName.trim(), category: newCat, locationId });
+      const res = await api.createRecipe({ name: newName.trim(), category: newCat });
       setNewName('');
       onCreated(res.data?.id);
     } catch {
@@ -344,6 +367,19 @@ function RecipeList({ recipes, ingMap, selected, isMobile, onSelect, onCreated, 
 
   return (
     <>
+      {ingredientFilter && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '10px 12px', borderBottom: `1px solid ${C.beigeLight}`, background: C.cream }}>
+          <div style={{ fontSize: 12, color: C.textSecond }}>
+            Filtered by ingredient: <strong style={{ color: C.ink }}>{ingredientFilter.name}</strong>
+          </div>
+          <button
+            onClick={onClearIngredientFilter}
+            style={{ fontSize: 11, padding: '4px 8px', background: 'transparent', color: C.textSecond, border: `1px solid ${C.beigeLight}`, borderRadius: 999, cursor: 'pointer' }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
@@ -400,13 +436,38 @@ function RecipeList({ recipes, ingMap, selected, isMobile, onSelect, onCreated, 
   );
 }
 
-export default function RecipesView({ locationId }) {
+export default function RecipesView({ locationId, locations = [], initialIngredientFilter = null }) {
   const [recipes, setRecipes] = useState([]);
   const [ingredients, setIngredients] = useState([]);
   const [ingMap, setIngMap] = useState({});
   const [selId, setSelId] = useState(null);
   const [mobilePanel, setMobilePanel] = useState('list');
+  const [ingredientFilter, setIngredientFilter] = useState(initialIngredientFilter);
   const { isMobile } = useResponsive();
+
+  useEffect(() => {
+    setIngredientFilter(initialIngredientFilter ?? null);
+  }, [initialIngredientFilter?.id]);
+
+  const visibleRecipes = useMemo(() => {
+    if (!ingredientFilter?.id) {
+      return recipes;
+    }
+    return recipes.filter((recipe) =>
+      (recipe.ingredients ?? []).some((ri) => ri.ingredientId === ingredientFilter.id),
+    );
+  }, [recipes, ingredientFilter]);
+
+  useEffect(() => {
+    if (!visibleRecipes.length) {
+      setSelId(null);
+      return;
+    }
+
+    if (!visibleRecipes.some((recipe) => recipe.id === selId)) {
+      setSelId(visibleRecipes[0].id);
+    }
+  }, [visibleRecipes, selId]);
 
   const load = () => {
     Promise.all([api.getRecipes(locationId, 1, 200), api.getIngredients(1, 200)])
@@ -429,7 +490,7 @@ export default function RecipesView({ locationId }) {
     if (locationId) load();
   }, [locationId]);
 
-  const selRecipe = recipes.find((r) => r.id === selId) ?? null;
+  const selRecipe = visibleRecipes.find((r) => r.id === selId) ?? null;
 
   function handleSelect(id) {
     setSelId(id);
@@ -450,13 +511,15 @@ export default function RecipesView({ locationId }) {
         {mobilePanel === 'list' || !selRecipe ? (
           <div style={{ flex: 1, background: C.white, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
             <RecipeList
-              recipes={recipes}
+              recipes={visibleRecipes}
               ingMap={ingMap}
               selected={selId}
               isMobile
               onSelect={handleSelect}
               onCreated={handleCreated}
               locationId={locationId}
+              ingredientFilter={ingredientFilter}
+              onClearIngredientFilter={() => setIngredientFilter(null)}
             />
           </div>
         ) : (
@@ -474,6 +537,7 @@ export default function RecipesView({ locationId }) {
                 ingMap={ingMap}
                 allIngredients={ingredients}
                 locationId={locationId}
+                locations={locations}
                 isMobile
                 onUpdated={load}
               />
@@ -488,13 +552,15 @@ export default function RecipesView({ locationId }) {
     <div style={{ display: 'flex', height: '100%', minHeight: 0, background: C.cream, overflow: 'hidden' }}>
       <div style={{ width: 240, minWidth: 240, background: C.white, borderRight: `1px solid ${C.beigeLight}`, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
         <RecipeList
-          recipes={recipes}
+          recipes={visibleRecipes}
           ingMap={ingMap}
           selected={selId}
           isMobile={false}
           onSelect={handleSelect}
           onCreated={handleCreated}
           locationId={locationId}
+          ingredientFilter={ingredientFilter}
+          onClearIngredientFilter={() => setIngredientFilter(null)}
         />
       </div>
       {!selRecipe ? (
@@ -509,6 +575,7 @@ export default function RecipesView({ locationId }) {
             ingMap={ingMap}
             allIngredients={ingredients}
             locationId={locationId}
+            locations={locations}
             isMobile={false}
             onUpdated={load}
           />

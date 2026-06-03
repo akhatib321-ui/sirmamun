@@ -13,16 +13,19 @@ const navGroups = [
   },
   { id: 'orders', label: 'Smart Orders',
     sub: [
-      { id: 'reorder', label: 'Reorder' },
-      { id: 'upload-csv', label: 'Upload Toast or Upload Product Sales' },
-      { id: 'matching', label: 'Matching' }
+      { id: 'stock', label: 'Stock', section: 'Smart Orders' },
+      { id: 'forecast', label: 'Forecast', section: 'Smart Orders' },
+      { id: 'orders', label: 'Orders', section: 'Smart Orders' },
+      { id: 'reorder', label: 'Reorder', section: 'Legacy' },
+      { id: 'upload-csv', label: 'Upload Toast / Product Sales', section: 'Legacy' },
+      { id: 'matching', label: 'Matching', section: 'Legacy' }
     ]
   },
   { id: 'scheduling', label: 'Scheduling' },
   { id: 'analytics', label: 'Analytics' }
 ];
 
-export default function Sidebar({ module, subView, onNavigate, isMobile }) {
+export default function Sidebar({ module, subView, onNavigate, isMobile, urgentCount = 0 }) {
   return (
     <aside
       style={{
@@ -64,7 +67,23 @@ export default function Sidebar({ module, subView, onNavigate, isMobile }) {
                 fontWeight: active ? 700 : 500
               }}
             >
-              {item.label}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span>{item.label}</span>
+                {item.id === 'orders' && urgentCount > 0 && (
+                  <span
+                    style={{
+                      background: '#fce6e2',
+                      color: '#9f2f24',
+                      borderRadius: 999,
+                      padding: '1px 7px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {urgentCount}
+                  </span>
+                )}
+              </span>
             </button>
           );
         })}
@@ -76,32 +95,53 @@ export default function Sidebar({ module, subView, onNavigate, isMobile }) {
             {module === 'orders' ? 'Smart Orders Views' : 'Menu & Costs Views'}
           </div>
           <div style={{ display: isMobile ? 'flex' : 'grid', gap: 6, overflowX: isMobile ? 'auto' : 'visible' }}>
-            {navGroups
-              .find(g => g.id === module)
-              ?.sub?.map((item) => {
+            {(() => {
+              const list = navGroups.find((g) => g.id === module)?.sub ?? [];
+              let lastSection = '';
+              return list.map((item) => {
                 const active = subView === item.id;
+                const sectionChanged = item.section && item.section !== lastSection;
+                lastSection = item.section || lastSection;
+
                 return (
-                  <button
-                    key={item.id}
-                    onClick={() => onNavigate(module, item.id)}
-                    style={{
-                      textAlign: 'left',
-                      border: 'none',
-                      borderRadius: 10,
-                      padding: '8px 10px',
-                      fontSize: 13,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      minWidth: 0,
-                      color: active ? '#fff' : '#d7cec1',
-                      background: active ? tokens.colors.brand : 'transparent',
-                      fontWeight: active ? 700 : 500
-                    }}
-                  >
-                    {item.label}
-                  </button>
+                  <React.Fragment key={item.id}>
+                    {sectionChanged && module === 'orders' && (
+                      <div
+                        style={{
+                          marginTop: item.section === 'Legacy' ? 8 : 0,
+                          marginBottom: 2,
+                          padding: '0 4px',
+                          fontSize: 10,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          opacity: 0.65,
+                        }}
+                      >
+                        {item.section}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => onNavigate(module, item.id)}
+                      style={{
+                        textAlign: 'left',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '8px 10px',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        minWidth: 0,
+                        color: active ? '#fff' : '#d7cec1',
+                        background: active ? tokens.colors.brand : 'transparent',
+                        fontWeight: active ? 700 : 500,
+                      }}
+                    >
+                      {item.label}
+                    </button>
+                  </React.Fragment>
                 );
-              })}
+              });
+            })()}
           </div>
         </div>
       )}

@@ -6,6 +6,9 @@ import MarginsView from './MarginsView.jsx';
 import UomView from './UomView.jsx';
 import AIIntakeView from './AIIntakeView.jsx';
 import ImportModal from './ImportModal.jsx';
+import ReorderOverview from '../inventory/ReorderOverview.jsx';
+import CsvUpload from '../inventory/CsvUpload.jsx';
+import Matching from '../inventory/Matching.jsx';
 import { api } from '../../api.js';
 import { tokens as C } from '../../shared/styles.js';
 
@@ -16,6 +19,7 @@ function TabBar({ active, onChange }) {
     { key: 'recipes',     label: '📋 Recipes' },
     { key: 'margins',     label: '📊 Margins' },
     { key: 'uom',         label: '📐 UOM guide' },
+    { key: 'utilities',   label: '🧰 Utilities' },
     { key: 'ai-intake',   label: '✨ AI Intake' },
   ];
   return (
@@ -39,12 +43,14 @@ function TabBar({ active, onChange }) {
   );
 }
 
-export default function CatalogShell({ subView: initialSubView, onNavigate, user }) {
+export default function CatalogShell({ subView: initialSubView, navigationContext, onNavigate, user }) {
   const [subView,    setSubView]   = useState(initialSubView ?? 'ingredients');
   const [locations,  setLocations] = useState([]);
   const [locationId, setLocId]     = useState('');
   const [showImport, setShowImport] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [utilityView, setUtilityView] = useState('low-stock');
+  const [matchedReportId, setMatchedReportId] = useState('');
 
   useEffect(() => {
     api.getLocations()
@@ -64,8 +70,17 @@ export default function CatalogShell({ subView: initialSubView, onNavigate, user
 
   const handleTabChange = (nextSubView) => {
     setSubView(nextSubView);
+    if (nextSubView === 'utilities') {
+      setUtilityView('low-stock');
+    }
     onNavigate?.('catalog', nextSubView);
   };
+
+  useEffect(() => {
+    if (subView === 'utilities' && initialSubView === 'utilities') {
+      setUtilityView('low-stock');
+    }
+  }, [subView, initialSubView]);
 
   const locationSelector = locations.length > 1 ? (
     <select
@@ -114,9 +129,56 @@ export default function CatalogShell({ subView: initialSubView, onNavigate, user
       <TabBar active={subView} onChange={handleTabChange} />
       <div style={{ flex: 1, overflowY: subView === 'recipes' ? 'hidden' : 'auto' }}>
         {subView === 'ingredients' && <IngredientsView key={`ingredients-${refreshKey}`} locationId={locationId} />}
-        {subView === 'recipes'     && <RecipesView     key={`recipes-${refreshKey}`} locationId={locationId} />}
+        {subView === 'recipes'     && <RecipesView     key={`recipes-${refreshKey}`} locationId={locationId} locations={locations} initialIngredientFilter={navigationContext?.recipeFocusIngredient ?? null} />}
         {subView === 'margins'     && <MarginsView     key={`margins-${refreshKey}`} locationId={locationId} />}
         {subView === 'uom'         && <UomView />}
+        {subView === 'utilities'   && (
+          <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', background: C.cream }}>
+            <div style={{ display: 'flex', gap: 8, padding: '12px 24px 0', flexWrap: 'wrap' }}>
+              {[
+                { key: 'low-stock', label: 'Low Stock' },
+                { key: 'upload-toast', label: 'Upload Toast' },
+                { key: 'matching', label: 'Matching' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setUtilityView(item.key)}
+                  style={{
+                    padding: '7px 12px', borderRadius: 999, border: `1px solid ${utilityView === item.key ? C.gold : C.beigeLight}`,
+                    background: utilityView === item.key ? C.goldP : C.white, color: utilityView === item.key ? C.warm : C.textSecond,
+                    fontFamily: 'DM Sans', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div style={{ flex: 1, minHeight: 0 }}>
+              {utilityView === 'low-stock' && (
+                <ReorderOverview
+                  onOpenDetail={() => {}}
+                  onOpenOrderList={() => {}}
+                  onOpenUpload={() => setUtilityView('upload-toast')}
+                  onOpenMatching={() => setUtilityView('matching')}
+                />
+              )}
+              {utilityView === 'upload-toast' && (
+                <CsvUpload
+                  onOpenMatching={(reportId) => {
+                    setMatchedReportId(reportId);
+                    setUtilityView('matching');
+                  }}
+                />
+              )}
+              {utilityView === 'matching' && (
+                <Matching
+                  initialReportId={matchedReportId}
+                  onRunReorderNow={() => setUtilityView('low-stock')}
+                />
+              )}
+            </div>
+          </div>
+        )}
         {subView === 'ai-intake'   && <AIIntakeView locationId={locationId} onNavigate={onNavigate} />}
       </div>
       {showImport && locationId && (

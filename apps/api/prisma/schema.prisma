@@ -133,6 +133,8 @@ model Ingredient {
   notes          String?
   organizationId Int      @default(1)
   stockItemId    String?
+  purchaseUnit   String?
+  purchaseToBase Float?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -186,7 +188,7 @@ model Recipe {
   name           String
   category       String
   sellPrice      Float    @default(0)
-  locationId     String
+  locationId     String?
   organizationId Int      @default(1)
   active         Boolean  @default(true)
   createdAt      DateTime @default(now())
@@ -204,6 +206,7 @@ model RecipeIngredient {
   ingredientId String
   quantity     Float
   useUnit      String // unit used in recipe — may differ from ingredient buy unit
+  locationId   String?
 
   recipe     Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id])

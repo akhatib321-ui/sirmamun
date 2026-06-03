@@ -104,6 +104,14 @@ const FAMILIES = [
   { key: 'count',  label: '🔢 Count',  border: '#86EFAC', base: 'each' },
 ];
 
+const NON_STANDARD_UNITS = ['shot', 'scoop', 'dropper'];
+
+const NON_STANDARD_DEFAULTS = {
+  shot: { family: 'count', baseValue: 1, label: 'Double shot', notes: '19g beans -> 34ml espresso' },
+  scoop: { family: 'count', baseValue: 1, label: 'Scoop', notes: 'Custom scoop count unit' },
+  dropper: { family: 'count', baseValue: 1, label: 'Dropper', notes: 'Custom dropper count unit' },
+};
+
 export default function UomView() {
   const [fromUnit, setFromUnit] = useState('lb');
   const [toUnit,   setToUnit]   = useState('g');
@@ -111,6 +119,12 @@ export default function UomView() {
   const [customUnits, setCustomUnits] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({
+    label: '',
+    baseValue: '',
+    notes: '',
+  });
   const [form, setForm] = useState({
     name: '',
     family: 'volume',
@@ -119,24 +133,42 @@ export default function UomView() {
     label: '',
   });
 
-  const loadCustomUnits = () => {
-    api
-      .getCustomUnits()
-      .then((res) => setCustomUnits(res.data ?? []))
-      .catch(() => setCustomUnits([]));
+  const loadCustomUnits = async () => {
+    try {
+      const first = await api.getCustomUnits();
+      const current = first.data ?? [];
+      const existingNames = new Set(current.map((u) => u.name));
+
+      await Promise.all(
+        NON_STANDARD_UNITS
+          .filter((name) => !existingNames.has(name))
+          .map((name) => api.createCustomUnit({ name, ...NON_STANDARD_DEFAULTS[name] })),
+      ).catch(() => {});
+
+      const finalRes = await api.getCustomUnits();
+      setCustomUnits(finalRes.data ?? current);
+    } catch {
+      setCustomUnits([]);
+    }
   };
 
   useEffect(() => {
     loadCustomUnits();
   }, []);
 
-  const mergedUnits = [...ALL_UNITS, ...customUnits.map((u) => u.name)];
+  const mergedUnits = Array.from(
+    new Set([
+      ...ALL_UNITS.filter((u) => !NON_STANDARD_UNITS.includes(u)),
+      ...NON_STANDARD_UNITS,
+      ...customUnits.map((u) => u.name),
+    ]),
+  );
 
   const getUnitEntry = (unitName) => {
-    if (UOM_TABLE[unitName]) return UOM_TABLE[unitName];
     const custom = customUnits.find((u) => u.name === unitName);
-    if (!custom) return null;
-    return { family: custom.family, base: custom.baseValue, label: custom.label };
+    if (custom) return { family: custom.family, base: custom.baseValue, label: custom.label };
+    if (UOM_TABLE[unitName]) return UOM_TABLE[unitName];
+    return null;
   };
 
   const convertMerged = (value, from, to) => {
@@ -185,6 +217,34 @@ export default function UomView() {
     }
   };
 
+  const beginEdit = (unit) => {
+    setEditingId(unit.id);
+    setEditForm({
+      label: unit.label || '',
+      baseValue: String(unit.baseValue ?? ''),
+      notes: unit.notes || '',
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ label: '', baseValue: '', notes: '' });
+  };
+
+  const saveEdit = async (unit) => {
+    try {
+      await api.updateCustomUnit(unit.id, {
+        label: editForm.label.trim() || unit.label,
+        baseValue: parseFloat(editForm.baseValue) || unit.baseValue,
+        notes: editForm.notes.trim() || undefined,
+      });
+      cancelEdit();
+      loadCustomUnits();
+    } catch (e) {
+      setError(e.message || 'Failed to update unit');
+    }
+  };
+
   return (
     <div style={s.page}>
       <p style={s.intro}>
@@ -220,7 +280,7 @@ export default function UomView() {
       <div style={s.customCard}>
         <div style={s.customHeader}>
           <div style={s.customTitle}>Custom units</div>
-          <div style={s.customHint}>Define package units like bottle, bag, jug</div>
+          <div style={s.customHint}>Define and edit package units like bottle, bag, jug, shot, scoop, dropper</div>
         </div>
 
         {customUnits.length > 0 && (
@@ -237,12 +297,49 @@ export default function UomView() {
           <div key={unit.id} style={s.customRow}>
             <div style={s.customCode}>{unit.name}</div>
             <div>{unit.family}</div>
-            <div>{unit.baseValue}</div>
             <div>
-              <strong>{unit.label}</strong>
-              {unit.notes ? ` - ${unit.notes}` : ''}
+              {editingId === unit.id ? (
+                <input
+                  style={{ ...s.formInput, width: '100%', padding: '4px 8px' }}
+                  type="number"
+                  value={editForm.baseValue}
+                  onChange={(e) => setEditForm((p) => ({ ...p, baseValue: e.target.value }))}
+                />
+              ) : unit.baseValue}
             </div>
-            <button style={s.deleteBtn} onClick={() => handleDelete(unit.id)}>Delete</button>
+            <div>
+              {editingId === unit.id ? (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <input
+                    style={{ ...s.formInput, padding: '4px 8px' }}
+                    value={editForm.label}
+                    onChange={(e) => setEditForm((p) => ({ ...p, label: e.target.value }))}
+                  />
+                  <input
+                    style={{ ...s.formInput, padding: '4px 8px' }}
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm((p) => ({ ...p, notes: e.target.value }))}
+                    placeholder="notes"
+                  />
+                </div>
+              ) : (
+                <>
+                  <strong>{unit.label}</strong>
+                  {unit.notes ? ` - ${unit.notes}` : ''}
+                </>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {editingId === unit.id ? (
+                <>
+                  <button style={{ ...s.deleteBtn, background: '#ecfdf3', borderColor: '#b9e7c9', color: '#1f7a42' }} onClick={() => saveEdit(unit)}>Save</button>
+                  <button style={{ ...s.deleteBtn, background: '#fff', borderColor: '#ddd', color: '#666' }} onClick={cancelEdit}>Cancel</button>
+                </>
+              ) : (
+                <button style={{ ...s.deleteBtn, background: '#eef3ff', borderColor: '#c9d5fb', color: '#3559b8' }} onClick={() => beginEdit(unit)}>Edit</button>
+              )}
+              <button style={s.deleteBtn} onClick={() => handleDelete(unit.id)}>Delete</button>
+            </div>
           </div>
         ))}
 
@@ -310,7 +407,7 @@ export default function UomView() {
       {/* Reference tables */}
       <div style={s.tables}>
         {FAMILIES.map(fam => {
-          const units = ALL_UNITS.filter(k => UOM_TABLE[k].family === fam.key);
+          const units = ALL_UNITS.filter(k => UOM_TABLE[k].family === fam.key && !NON_STANDARD_UNITS.includes(k));
           return (
             <div key={fam.key} style={s.familyCard(fam.border)}>
               <div style={s.familyHeader}>{fam.label} — base: {fam.base}</div>

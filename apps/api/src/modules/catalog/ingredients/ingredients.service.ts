@@ -1,5 +1,5 @@
 // src/modules/catalog/ingredients/ingredients.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Events } from '../../../events/event-types';
@@ -8,6 +8,7 @@ import { PaginationDto } from '../../../shared/pagination.dto';
 import { UserContext } from '../../../shared/interfaces';
 import { CreateIngredientDto } from './dto/create-ingredient.dto';
 import { AddIngredientCostDto } from './dto/add-ingredient-cost.dto';
+import { UOM_TABLE } from '../../../shared/uom.util';
 
 @Injectable()
 export class IngredientsService {
@@ -49,22 +50,46 @@ export class IngredientsService {
   }
 
   async create(dto: CreateIngredientDto, user: UserContext) {
+    await this.assertUnitExists(dto.unit, user.organizationId);
+
+    const data: any = {
+      name: dto.name,
+      unit: dto.unit,
+      notes: dto.notes,
+      organizationId: user.organizationId,
+      purchaseUnit: (dto as any).purchaseUnit ?? null,
+      purchaseToBase: (dto as any).purchaseToBase ?? null,
+    };
+
     const ingredient = await this.prisma.ingredient.create({
-      data: {
-        name: dto.name,
-        unit: dto.unit,
-        notes: dto.notes,
-        organizationId: user.organizationId,
-      },
+      data,
     });
     return ok(ingredient);
   }
 
   async update(id: string, dto: Partial<CreateIngredientDto>, user: UserContext) {
     await this.ensureExists(id, user.organizationId);
+
+    if (dto.unit) {
+      await this.assertUnitExists(dto.unit, user.organizationId);
+    }
+
+    const data: any = {
+      name: dto.name,
+      unit: dto.unit,
+      notes: dto.notes,
+    };
+
+    if (Object.prototype.hasOwnProperty.call(dto, 'purchaseUnit')) {
+      data.purchaseUnit = (dto as any).purchaseUnit ?? null;
+    }
+    if (Object.prototype.hasOwnProperty.call(dto, 'purchaseToBase')) {
+      data.purchaseToBase = (dto as any).purchaseToBase ?? null;
+    }
+
     const updated = await this.prisma.ingredient.update({
       where: { id },
-      data: { name: dto.name, unit: dto.unit, notes: dto.notes },
+      data,
     });
     return ok(updated);
   }
@@ -136,5 +161,25 @@ export class IngredientsService {
     });
     if (!found) throw new NotFoundException('Ingredient not found');
     return found;
+  }
+
+  private async assertUnitExists(unit: string, organizationId: number) {
+    const normalized = unit?.trim().toLowerCase();
+    if (!normalized) {
+      throw new BadRequestException('Unit is required');
+    }
+
+    if (UOM_TABLE[normalized]) {
+      return;
+    }
+
+    const custom = await this.prisma.customUnit.findFirst({
+      where: { name: normalized, organizationId },
+      select: { id: true },
+    });
+
+    if (!custom) {
+      throw new BadRequestException(`Unknown unit "${unit}". Add it in UOM Guide first.`);
+    }
   }
 }

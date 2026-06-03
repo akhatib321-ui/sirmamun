@@ -233,12 +233,34 @@ export class StockChainService {
     }
 
     const builtInUnit = UOM_TABLE[workingUnit];
+    const purchaseToBaseRaw = (ingredient as any).purchaseToBase;
+    const purchaseUnitRaw = (ingredient as any).purchaseUnit;
+    const purchaseToBase =
+      typeof purchaseToBaseRaw === 'number'
+        ? purchaseToBaseRaw
+        : typeof purchaseToBaseRaw === 'string'
+          ? Number.parseFloat(purchaseToBaseRaw)
+          : null;
+    const purchaseUnit =
+      typeof purchaseUnitRaw === 'string' && purchaseUnitRaw.trim().length
+        ? purchaseUnitRaw.trim()
+        : null;
     let baseQty = workingQty;
     let baseUnit = workingUnit;
 
     if (builtInUnit) {
       baseQty = workingQty * builtInUnit.base;
       baseUnit = baseUnitForFamily(builtInUnit.family as UnitFamily);
+    } else if (purchaseToBase && Number.isFinite(purchaseToBase) && purchaseToBase > 0) {
+      const recipeEntry = UOM_TABLE[ingredient.unit];
+      const family = (recipeEntry?.family as UnitFamily | undefined) ?? 'volume';
+      baseQty = workingQty * purchaseToBase;
+      baseUnit = baseUnitForFamily(family);
+      chain.push({
+        qty: parseFloat(baseQty.toFixed(4)),
+        unit: baseUnit,
+        note: `${purchaseUnit ?? workingUnit}: 1 ${workingUnit} = ${purchaseToBase} ${baseUnit}`,
+      });
     } else {
       const customUnit = await this.prisma.customUnit.findFirst({
         where: { name: workingUnit, organizationId },
@@ -254,7 +276,7 @@ export class StockChainService {
           resolvedUnit: ingredient.unit,
           chain,
           isComplete: false,
-          warning: `Unit "${workingUnit}" is not defined in built-in UOMs or custom units.`,
+          warning: `Unit "${workingUnit}" has no conversion. Set purchase chain on this ingredient or add it to custom units.`,
         });
       }
 

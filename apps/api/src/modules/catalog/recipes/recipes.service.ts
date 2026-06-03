@@ -19,24 +19,22 @@ export class RecipesService {
 
   async findAll(organizationId: number, locationId?: string, pagination?: PaginationDto) {
     const page = pagination ?? new PaginationDto();
-    const where = { organizationId, active: true, ...(locationId ? { locationId } : {}) };
-
-    const [items, total] = await Promise.all([
-      this.prisma.recipe.findMany({
-        where,
-        include: {
-          ingredients: {
-            include: { ingredient: { include: { costs: { orderBy: { purchaseDate: 'desc' }, take: 1 } } } },
-          },
+    const recipes = await this.prisma.recipe.findMany({
+      where: { organizationId, active: true },
+      include: {
+        ingredients: {
+          include: { ingredient: { include: { costs: { orderBy: { purchaseDate: 'desc' }, take: 1 } } } },
         },
-        orderBy: [{ category: 'asc' }, { name: 'asc' }],
-        skip: page.skip,
-        take: page.limit,
-      }),
-      this.prisma.recipe.count({ where }),
-    ]);
+      },
+      orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
 
-    return paginated(items, total, page.page, page.limit);
+    const filtered = locationId
+      ? recipes.filter((recipe) => this.recipeAppliesToLocation(recipe, locationId))
+      : recipes.filter((recipe) => this.recipeAppliesToLocation(recipe, null));
+
+    const items = filtered.slice(page.skip, page.skip + page.limit);
+    return paginated(items, filtered.length, page.page, page.limit);
   }
 
   async findOne(id: string, organizationId: number) {
@@ -62,7 +60,7 @@ export class RecipesService {
         name: dto.name,
         category: dto.category,
         sellPrice: dto.sellPrice ?? 0,
-        locationId: dto.locationId,
+        locationId: dto.locationId ?? null,
         organizationId: user.organizationId,
       },
     });
@@ -114,10 +112,12 @@ export class RecipesService {
         ingredientId: dto.ingredientId,
         quantity: dto.quantity,
         useUnit: dto.useUnit,
+        locationId: dto.locationId ?? null,
       },
       update: {
         quantity: dto.quantity,
         useUnit: dto.useUnit,
+        locationId: dto.locationId ?? null,
       },
     });
 
@@ -147,5 +147,27 @@ export class RecipesService {
     const found = await this.prisma.recipe.findFirst({ where: { id, organizationId } });
     if (!found) throw new NotFoundException('Recipe not found');
     return found;
+  }
+
+  private recipeAppliesToLocation(recipe: any, locationId: string | null) {
+    const ingredientScopes = new Set(
+      (recipe.ingredients ?? [])
+        .map((ri: { locationId?: string | null }) => ri.locationId ?? null)
+        .filter((value: string | null) => !!value),
+    );
+
+    if (!locationId) {
+      return (recipe.locationId ?? null) === null && ingredientScopes.size === 0;
+    }
+
+    if (recipe.locationId && recipe.locationId !== locationId) {
+      return false;
+    }
+
+    if (ingredientScopes.size === 0) {
+      return true;
+    }
+
+    return ingredientScopes.has(locationId);
   }
 }

@@ -10,6 +10,7 @@ export const UOM_TABLE = {
   ml:      { family: 'volume', base: 1,         label: 'Millilitre' },
   l:       { family: 'volume', base: 1000,       label: 'Litre' },
   oz:      { family: 'volume', base: 29.5735,   label: 'Fluid ounce' },
+  gal:     { family: 'volume', base: 3785.41,   label: 'Gallon (US)' },
   cup:     { family: 'volume', base: 236.588,   label: 'Cup (US)' },
   tbsp:    { family: 'volume', base: 14.7868,   label: 'Tablespoon' },
   tsp:     { family: 'volume', base: 4.92892,   label: 'Teaspoon' },
