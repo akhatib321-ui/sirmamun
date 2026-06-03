@@ -1891,10 +1891,10 @@ function Module2Workspace({
       onExit();
       return;
     }
-          <div style={{fontSize:11,letterSpacing:1.2,textTransform:'uppercase',color:tokens.colors.muted,fontFamily:tokens.fonts.body}}>AI Orders</div>
+    setModule(nextModule);
     setNavContext(nextContext ?? null);
     if(isMobile){
-        <button onClick={onExit} style={{border:`1px solid ${tokens.colors.border}`,background:'#fff',borderRadius:10,padding:'9px 12px',cursor:'pointer',fontWeight:600,fontFamily:tokens.fonts.body,color:tokens.colors.ink}}>Back to SirMamun</button>
+      setSidebarOpen(false);
     }
     if(nextSubView){
       setSubView(nextSubView);
@@ -1925,7 +1925,7 @@ function Module2Workspace({
                   background:'none',
                   border:'none',
                   cursor:'pointer',
-                  color:tokens.gold,
+                  color:C.gold,
                   fontSize:22,
                   padding:4,
                   lineHeight:1,
@@ -1934,7 +1934,7 @@ function Module2Workspace({
               >
                 ☰
               </button>
-              <span style={{fontFamily:tokens.fonts.heading,fontSize:18,color:tokens.gold,fontWeight:700}}>AI Orders</span>
+              <span style={{fontFamily:tokens.fonts.heading,fontSize:18,color:C.gold,fontWeight:700}}>AI Orders</span>
             </div>
 
             {sidebarOpen && (
@@ -1976,46 +1976,58 @@ function Module2Workspace({
       {isMobile && (
         <div
           style={{
-            position: 'sticky',
+            position: 'fixed',
             bottom: 0,
-            background: '#141218',
-            borderTop: `1px solid ${tokens.colors.border}`,
+            left: 0,
+            right: 0,
+            width: '100%',
+            background: C.black,
+            borderTop: '1px solid #1E1A15',
             display: 'grid',
             gridTemplateColumns: 'repeat(5, 1fr)',
-            zIndex: 70,
+            paddingBottom: 'env(safe-area-inset-bottom,0px)',
+            zIndex: 100,
           }}
         >
           <ManagerFooterBtn
             label="Dash"
+            icon={Ic.dash}
             active={false}
             onClick={onExit}
           />
           <ManagerFooterBtn
             label="Inventory"
-            active={module === 'orders' && subView !== 'orders'}
+            icon={Ic.inv}
+            active={module === 'orders' && subView === 'stock'}
             onClick={() => {
               setModule('orders');
               setSubView('stock');
             }}
           />
           <ManagerFooterBtn
-            label="Orders"
-            active={module === 'orders' && subView === 'orders'}
+            label="Catalog"
+            icon={Ic.cat}
+            active={module === 'catalog' && subView === 'ingredients'}
             onClick={() => {
-              setModule('orders');
-              setSubView('orders');
+              setModule('catalog');
+              setSubView('ingredients');
             }}
-            badge={urgentCount > 0 ? urgentCount : null}
           />
           <ManagerFooterBtn
-            label="Reports"
-            active={module === 'analytics'}
-            onClick={() => setModule('analytics')}
+            label="Recipes"
+            icon={Ic.cat}
+            active={module === 'catalog' && subView === 'recipes'}
+            onClick={() => {
+              setModule('catalog');
+              setSubView('recipes');
+            }}
           />
           <ManagerFooterBtn
             label="More"
+            icon={<svg width="21" height="21" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>}
             active={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
+            badge={urgentCount > 0 ? urgentCount : null}
           />
         </div>
       )}
@@ -2023,30 +2035,32 @@ function Module2Workspace({
   );
 }
 
-function ManagerFooterBtn({ label, active, onClick, badge = null }) {
+function ManagerFooterBtn({ label, icon, active, onClick, badge = null }) {
   return (
     <button
       onClick={onClick}
       style={{
         background: 'none',
         border: 'none',
-        color: active ? tokens.gold : '#8e8578',
+        color: active ? C.gold : C.warmM,
         padding: '10px 0 12px',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
-        gap: 2,
-        fontSize: 11,
+        gap: 3,
         cursor: 'pointer',
         position: 'relative',
+        transition: 'color .2s',
+        fontFamily: ff,
       }}
     >
-      <span>{label}</span>
+      <div style={{ lineHeight: 0 }}>{icon}</div>
+      <span style={{ fontSize: 9.5, fontWeight: active ? 600 : 400, letterSpacing: 0.3 }}>{label}</span>
       {badge ? (
         <span
           style={{
             position: 'absolute',
-            top: 4,
+            top: 2,
             right: '24%',
             background: '#fce6e2',
             color: '#9f2f24',
@@ -2290,10 +2304,6 @@ export default function App(){
           <header style={{background:C.black,padding:'0 16px',height:56,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:100,boxShadow:'0 2px 14px rgba(0,0,0,.32)'}}>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
               <img src={LOGO} alt="Baladi" style={{height:32,width:'auto',objectFit:'contain'}}/>
-              <div>
-                <div style={{fontFamily:fs,fontSize:17,color:C.gold,fontWeight:700,letterSpacing:.5,lineHeight:1}}>SirMamun</div>
-                <div style={{height:1,background:`linear-gradient(90deg,${C.gold},transparent)`,marginTop:2}}/>
-              </div>
               <div style={{width:1,height:20,background:C.gold,opacity:.25,borderRadius:1,marginLeft:2}}/>
               <span style={{fontSize:10.5,color:C.warmL,letterSpacing:1.5,textTransform:'uppercase',fontFamily:ff}}>{tabTitles[tab]}</span>
             </div>
